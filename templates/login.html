@@ -1,0 +1,25 @@
+<!doctype html>
+<html lang="en">
+<head>
+  <meta charset="UTF-8" />
+  <meta name="viewport" content="width=device-width, initial-scale=1.0" />
+  <title>Video Dashboard Login</title>
+  <link rel="stylesheet" href="{{ url_for('static', filename='style.css') }}" />
+</head>
+<body>
+  <main class="auth-wrap">
+    <section class="card auth-card">
+      <h1>Video Curation Dashboard</h1>
+      <p class="muted">Enter password to continue.</p>
+      {% if error %}
+      <div class="error">{{ error }}</div>
+      {% endif %}
+      <form method="post" class="auth-form">
+        <label for="password">Password</label>
+        <input id="password" name="password" type="password" required autofocus />
+        <button type="submit">Log in</button>
+      </form>
+    </section>
+  </main>
+</body>
+</html>

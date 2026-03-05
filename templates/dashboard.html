@@ -1,0 +1,76 @@
+<!doctype html>
+<html lang="en">
+<head>
+  <meta charset="UTF-8" />
+  <meta name="viewport" content="width=device-width, initial-scale=1.0" />
+  <title>Video Curation Dashboard</title>
+  <link rel="stylesheet" href="{{ url_for('static', filename='style.css') }}" />
+</head>
+<body>
+  <header class="topbar">
+    <h1>Daily Recommended Videos</h1>
+    <form method="post" action="{{ url_for('logout') }}">
+      <button type="submit" class="secondary">Log out</button>
+    </form>
+  </header>
+
+  <main class="grid">
+    {% if recommendations %}
+      {% for item in recommendations %}
+      <article class="card" id="card-{{ item.id }}">
+        <h2>{{ item.title }}</h2>
+        {% if item.url %}
+        <p><a href="{{ item.url }}" target="_blank" rel="noreferrer">{{ item.url }}</a></p>
+        {% endif %}
+        {% if item.video_id %}
+        <p class="muted">Video ID: {{ item.video_id }}</p>
+        {% endif %}
+        {% if item.description %}
+        <p>{{ item.description }}</p>
+        {% endif %}
+        <p class="muted">Source: {{ item.source }}</p>
+
+        <div class="actions">
+          <button data-item-id="{{ item.id }}" data-action="approve" class="approve">Approve</button>
+          <button data-item-id="{{ item.id }}" data-action="reject" class="reject">Reject</button>
+        </div>
+        <p class="status" id="status-{{ item.id }}"></p>
+      </article>
+      {% endfor %}
+    {% else %}
+      <section class="card">
+        <h2>No recommendations found</h2>
+        <p class="muted">Expected data files: /tmp/openclaw/video-recs-message.json and /tmp/openclaw/video-recs-latest.json</p>
+      </section>
+    {% endif %}
+  </main>
+
+  <script>
+    async function runAction(itemId, action) {
+      const statusEl = document.getElementById(`status-${itemId}`);
+      statusEl.textContent = `Submitting ${action}...`;
+      statusEl.className = 'status';
+
+      try {
+        const res = await fetch(`/api/recommendations/${itemId}/${action}`, { method: 'POST' });
+        const data = await res.json();
+        if (res.ok && data.ok) {
+          statusEl.textContent = `${action} succeeded`;
+          statusEl.className = 'status ok';
+        } else {
+          const detail = data.error || data.stderr || 'Unknown error';
+          statusEl.textContent = `${action} failed: ${detail}`;
+          statusEl.className = 'status err';
+        }
+      } catch (err) {
+        statusEl.textContent = `${action} failed: ${err}`;
+        statusEl.className = 'status err';
+      }
+    }
+
+    document.querySelectorAll('button[data-item-id]').forEach(btn => {
+      btn.addEventListener('click', () => runAction(btn.dataset.itemId, btn.dataset.action));
+    });
+  </script>
+</body>
+</html>

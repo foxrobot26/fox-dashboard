@@ -1,0 +1,69 @@
+:root { color-scheme: dark; }
+* { box-sizing: border-box; }
+body {
+  margin: 0;
+  font-family: -apple-system, BlinkMacSystemFont, "Segoe UI", sans-serif;
+  background: #0f1117;
+  color: #e6e6e6;
+}
+
+.topbar {
+  display: flex;
+  justify-content: space-between;
+  align-items: center;
+  padding: 1rem 1.5rem;
+  border-bottom: 1px solid #2c313d;
+}
+
+.grid {
+  display: grid;
+  grid-template-columns: repeat(auto-fill, minmax(300px, 1fr));
+  gap: 1rem;
+  padding: 1rem 1.5rem 2rem;
+}
+
+.card {
+  background: #171b24;
+  border: 1px solid #2c313d;
+  border-radius: 10px;
+  padding: 1rem;
+}
+
+.auth-wrap {
+  min-height: 100vh;
+  display: grid;
+  place-items: center;
+  padding: 1rem;
+}
+
+.auth-card { width: min(440px, 100%); }
+.auth-form { display: grid; gap: 0.7rem; }
+
+input {
+  padding: 0.65rem;
+  border-radius: 8px;
+  border: 1px solid #3c4252;
+  background: #0f1117;
+  color: #fff;
+}
+
+button {
+  padding: 0.6rem 0.9rem;
+  border-radius: 8px;
+  border: none;
+  cursor: pointer;
+  background: #3f7cff;
+  color: white;
+}
+
+button.reject { background: #d14b4b; }
+button.approve { background: #2ea36a; }
+button.secondary { background: #343b49; }
+
+.actions { display: flex; gap: 0.6rem; margin-top: 0.9rem; }
+.muted { color: #9aa4b5; font-size: 0.9rem; }
+.error { color: #ff8f8f; margin: 0.5rem 0; }
+.status { margin-top: 0.7rem; font-size: 0.9rem; }
+.status.ok { color: #7ae7ad; }
+.status.err { color: #ff9b9b; }
+a { color: #9ec1ff; }
