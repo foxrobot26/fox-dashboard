@@ -4,12 +4,14 @@ Simple Flask dashboard to review daily video recommendations and send approve/re
 
 ## Features
 - Password login with Flask session auth
-- Reads recommendation cards from:
-  - `/tmp/openclaw/video-recs-message.json`
-  - `/tmp/openclaw/video-recs-latest.json`
-- Approve/Reject actions per card
-- Action triggers:
-  - `python3 /Users/fox/.openclaw/workspace/scripts/recs/handle_recs_reply.py --chat-id -1003840141521 --thread-id 22 --text <approve|reject> --reply-text <card text>`
+- Reads review buckets from KB backend via:
+  - `scripts/kb/kb_cli.sh --base-dir /Users/fox/.openclaw/workspace/rag_kb_data review-buckets --limit 200`
+- Tabs for Pending, Approved, Rejected
+- Pending cards have Approve/Reject actions
+- Approved/Rejected cards show status + who actioned
+- Actions trigger KB backend directly:
+  - `approve-video ... --by <actor>`
+  - `reject-video ... --by <actor>`
 
 ## Requirements
 - Python 3.10+
@@ -38,7 +40,7 @@ source .venv/bin/activate
 python3 app.py
 ```
 
-App listens on `0.0.0.0:${PORT:-8080}`.
+App listens on `127.0.0.1:${PORT:-8080}` behind Nginx.
 
 ## Tailscale access note
 Because the server binds to `0.0.0.0`, it can be reached over your Tailscale IP when running on a Tailscale-connected host. Example:
@@ -51,6 +53,6 @@ Use Tailscale ACLs and a strong `DASHBOARD_PASSWORD`.
 - `POST /login`
 - `GET /dashboard`
 - `POST /logout`
-- `GET /api/recommendations`
+- `GET /api/review-buckets`
 - `POST /api/recommendations/<item_id>/approve`
 - `POST /api/recommendations/<item_id>/reject`

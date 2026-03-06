@@ -8,44 +8,105 @@
 </head>
 <body>
   <header class="topbar">
-    <h1>Daily Recommended Videos</h1>
-    <form method="post" action="{{ url_for('logout') }}">
-      <button type="submit" class="secondary">Log out</button>
-    </form>
+    <div>
+      <h1>Video Review Dashboard</h1>
+      <p class="muted">Run date: {{ data.run_date or 'n/a' }} · Pending {{ data.counts.pending }} · Approved {{ data.counts.approved }} · Rejected {{ data.counts.rejected }}</p>
+    </div>
+    <div class="top-actions">
+      <button type="button" class="secondary" id="refresh-btn">Refresh</button>
+      <form method="post" action="{{ url_for('logout') }}">
+        <button type="submit" class="secondary">Log out</button>
+      </form>
+    </div>
   </header>
 
-  <main class="grid">
-    {% if recommendations %}
-      {% for item in recommendations %}
-      <article class="card" id="card-{{ item.id }}">
-        <h2>{{ item.title }}</h2>
-        {% if item.url %}
-        <p><a href="{{ item.url }}" target="_blank" rel="noreferrer">{{ item.url }}</a></p>
-        {% endif %}
-        {% if item.video_id %}
-        <p class="muted">Video ID: {{ item.video_id }}</p>
-        {% endif %}
-        {% if item.description %}
-        <p>{{ item.description }}</p>
-        {% endif %}
-        <p class="muted">Source: {{ item.source }}</p>
-
-        <div class="actions">
-          <button data-item-id="{{ item.id }}" data-action="approve" class="approve">Approve</button>
-          <button data-item-id="{{ item.id }}" data-action="reject" class="reject">Reject</button>
-        </div>
-        <p class="status" id="status-{{ item.id }}"></p>
-      </article>
-      {% endfor %}
-    {% else %}
+  {% if not data.ok %}
+    <main class="grid">
       <section class="card">
-        <h2>No recommendations found</h2>
-        <p class="muted">Expected data files: /tmp/openclaw/video-recs-message.json and /tmp/openclaw/video-recs-latest.json</p>
+        <h2>Could not load review buckets</h2>
+        <p class="error">{{ data.error }}</p>
       </section>
-    {% endif %}
-  </main>
+    </main>
+  {% else %}
+    <main class="tabs-wrap">
+      <div class="tabs">
+        <button class="tab is-active" data-tab="pending">Pending ({{ data.counts.pending }})</button>
+        <button class="tab" data-tab="approved">Approved ({{ data.counts.approved }})</button>
+        <button class="tab" data-tab="rejected">Rejected ({{ data.counts.rejected }})</button>
+      </div>
+
+      <section class="tab-panel is-active" id="panel-pending">
+        <div class="grid">
+          {% for item in data.pending %}
+          <article class="card" id="card-{{ item.item_id }}">
+            <h2>{{ item.title }}</h2>
+            {% if item.url %}<p><a href="{{ item.url }}" target="_blank" rel="noreferrer">{{ item.url }}</a></p>{% endif %}
+            <p class="muted">Video ID: {{ item.video_id }}</p>
+            {% if item.uploader %}<p class="muted">Channel: {{ item.uploader }}</p>{% endif %}
+            {% if item.reason %}<p>{{ item.reason }}</p>{% endif %}
+            <div class="actions">
+              <button data-item-id="{{ item.item_id }}" data-action="approve" class="approve">Approve</button>
+              <button data-item-id="{{ item.item_id }}" data-action="reject" class="reject">Reject</button>
+            </div>
+            <p class="status" id="status-{{ item.item_id }}"></p>
+          </article>
+          {% endfor %}
+          {% if not data.pending %}
+          <section class="card"><h2>No pending videos</h2></section>
+          {% endif %}
+        </div>
+      </section>
+
+      <section class="tab-panel" id="panel-approved">
+        <div class="grid">
+          {% for item in data.approved %}
+          <article class="card compact" id="card-{{ item.item_id }}">
+            <h2>{{ item.title }}</h2>
+            {% if item.url %}<p><a href="{{ item.url }}" target="_blank" rel="noreferrer">{{ item.url }}</a></p>{% endif %}
+            <p class="muted">Status: Approved</p>
+            <p class="muted">Actioned by: {{ item.acted_by or 'unknown' }}</p>
+            <p class="muted">Actioned at: {{ item.actioned_at or 'n/a' }}</p>
+          </article>
+          {% endfor %}
+          {% if not data.approved %}
+          <section class="card"><h2>No approved videos</h2></section>
+          {% endif %}
+        </div>
+      </section>
+
+      <section class="tab-panel" id="panel-rejected">
+        <div class="grid">
+          {% for item in data.rejected %}
+          <article class="card compact" id="card-{{ item.item_id }}">
+            <h2>{{ item.title }}</h2>
+            {% if item.url %}<p><a href="{{ item.url }}" target="_blank" rel="noreferrer">{{ item.url }}</a></p>{% endif %}
+            <p class="muted">Status: Rejected</p>
+            <p class="muted">Actioned by: {{ item.acted_by or 'unknown' }}</p>
+            <p class="muted">Actioned at: {{ item.actioned_at or 'n/a' }}</p>
+          </article>
+          {% endfor %}
+          {% if not data.rejected %}
+          <section class="card"><h2>No rejected videos</h2></section>
+          {% endif %}
+        </div>
+      </section>
+    </main>
+  {% endif %}
 
   <script>
+    function activateTab(name) {
+      document.querySelectorAll('.tab').forEach(btn => {
+        btn.classList.toggle('is-active', btn.dataset.tab === name);
+      });
+      document.querySelectorAll('.tab-panel').forEach(panel => {
+        panel.classList.toggle('is-active', panel.id === `panel-${name}`);
+      });
+    }
+
+    document.querySelectorAll('.tab').forEach(btn => {
+      btn.addEventListener('click', () => activateTab(btn.dataset.tab));
+    });
+
     async function runAction(itemId, action) {
       const statusEl = document.getElementById(`status-${itemId}`);
       statusEl.textContent = `Submitting ${action}...`;
@@ -55,10 +116,11 @@
         const res = await fetch(`/api/recommendations/${itemId}/${action}`, { method: 'POST' });
         const data = await res.json();
         if (res.ok && data.ok) {
-          statusEl.textContent = `${action} succeeded`;
+          statusEl.textContent = `${action} succeeded, refreshing...`;
           statusEl.className = 'status ok';
+          setTimeout(() => window.location.reload(), 600);
         } else {
-          const detail = data.error || data.stderr || 'Unknown error';
+          const detail = data.error || data.stderr || JSON.stringify(data.result || {}) || 'Unknown error';
           statusEl.textContent = `${action} failed: ${detail}`;
           statusEl.className = 'status err';
         }
@@ -71,6 +133,8 @@
     document.querySelectorAll('button[data-item-id]').forEach(btn => {
       btn.addEventListener('click', () => runAction(btn.dataset.itemId, btn.dataset.action));
     });
+
+    document.getElementById('refresh-btn')?.addEventListener('click', () => window.location.reload());
   </script>
 </body>
 </html>

@@ -15,11 +15,19 @@ body {
   border-bottom: 1px solid #2c313d;
 }
 
+.top-actions { display: flex; gap: 0.6rem; align-items: center; }
+
+.tabs-wrap { padding: 1rem 1.5rem 2rem; }
+.tabs { display: flex; gap: 0.5rem; margin-bottom: 1rem; }
+.tab { background: #343b49; }
+.tab.is-active { background: #3f7cff; }
+.tab-panel { display: none; }
+.tab-panel.is-active { display: block; }
+
 .grid {
   display: grid;
-  grid-template-columns: repeat(auto-fill, minmax(300px, 1fr));
+  grid-template-columns: repeat(auto-fill, minmax(320px, 1fr));
   gap: 1rem;
-  padding: 1rem 1.5rem 2rem;
 }
 
 .card {
@@ -28,6 +36,8 @@ body {
   border-radius: 10px;
   padding: 1rem;
 }
+
+.card.compact h2 { font-size: 1.05rem; margin-top: 0; }
 
 .auth-wrap {
   min-height: 100vh;
