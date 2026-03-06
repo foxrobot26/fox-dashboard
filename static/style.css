@@ -77,3 +77,15 @@ button.secondary { background: #343b49; }
 .status.ok { color: #7ae7ad; }
 .status.err { color: #ff9b9b; }
 a { color: #9ec1ff; }
+
+.note-input {
+  width: 100%;
+  min-height: 72px;
+  margin-top: 0.3rem;
+  padding: 0.55rem 0.6rem;
+  border-radius: 8px;
+  border: 1px solid #3c4252;
+  background: #0f1117;
+  color: #fff;
+  resize: vertical;
+}

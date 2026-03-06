@@ -61,7 +61,12 @@ def create_app() -> Flask:
         out["status"] = bucket
         out["can_act"] = bucket == "pending"
         decision = out.get("decision_event") or {}
-        out["actioned_at"] = str(decision.get("created_at") or "") if isinstance(decision, dict) else ""
+        if isinstance(decision, dict):
+            out["actioned_at"] = str(decision.get("created_at") or "")
+            out["decision_note"] = str(decision.get("reason") or "").strip()
+        else:
+            out["actioned_at"] = ""
+            out["decision_note"] = ""
         return out
 
     def _run_kb_json(args: list[str]) -> tuple[bool, dict[str, Any], str]:
@@ -166,6 +171,8 @@ def create_app() -> Flask:
         if not item:
             return jsonify({"ok": False, "error": "Pending recommendation not found"}), 404
 
+        body = request.get_json(silent=True) or {}
+        note = str((body.get("note") if isinstance(body, dict) else "") or "").strip()
         cmd = [f"{action}-video", "--video-id", str(item.get("video_id") or ""), "--by", ACTION_ACTOR]
         source_id = item.get("source_id")
         if source_id is not None and str(source_id).strip() not in {"", "None"}:
@@ -174,6 +181,9 @@ def create_app() -> Flask:
             url = str(item.get("url") or "").strip()
             if url:
                 cmd += ["--url", url]
+
+        if note:
+            cmd += ["--reason", note]
 
         ok, payload, stderr = _run_kb_json(cmd)
         status = 200 if ok else 500
@@ -185,6 +195,7 @@ def create_app() -> Flask:
                     "item_id": item_id,
                     "video_id": item.get("video_id"),
                     "title": item.get("title"),
+                    "note": note,
                     "result": payload,
                     "stderr": stderr,
                 }

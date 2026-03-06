@@ -44,6 +44,8 @@
             <p class="muted">Video ID: {{ item.video_id }}</p>
             {% if item.uploader %}<p class="muted">Channel: {{ item.uploader }}</p>{% endif %}
             {% if item.reason %}<p>{{ item.reason }}</p>{% endif %}
+            <label class="muted" for="note-{{ item.item_id }}">Approval note (optional)</label>
+            <textarea id="note-{{ item.item_id }}" class="note-input" placeholder="Why approve this? This note is saved on the approved card."></textarea>
             <div class="actions">
               <button data-item-id="{{ item.item_id }}" data-action="approve" class="approve">Approve</button>
               <button data-item-id="{{ item.item_id }}" data-action="reject" class="reject">Reject</button>
@@ -66,6 +68,7 @@
             <p class="muted">Status: Approved</p>
             <p class="muted">Actioned by: {{ item.acted_by or 'unknown' }}</p>
             <p class="muted">Actioned at: {{ item.actioned_at or 'n/a' }}</p>
+            {% if item.decision_note %}<p><strong>Note:</strong> {{ item.decision_note }}</p>{% endif %}
           </article>
           {% endfor %}
           {% if not data.approved %}
@@ -83,6 +86,7 @@
             <p class="muted">Status: Rejected</p>
             <p class="muted">Actioned by: {{ item.acted_by or 'unknown' }}</p>
             <p class="muted">Actioned at: {{ item.actioned_at or 'n/a' }}</p>
+            {% if item.decision_note %}<p><strong>Note:</strong> {{ item.decision_note }}</p>{% endif %}
           </article>
           {% endfor %}
           {% if not data.rejected %}
@@ -113,7 +117,13 @@
       statusEl.className = 'status';
 
       try {
-        const res = await fetch(`/api/recommendations/${itemId}/${action}`, { method: 'POST' });
+        const noteEl = document.getElementById(`note-${itemId}`);
+        const note = action === 'approve' && noteEl ? noteEl.value.trim() : '';
+        const res = await fetch(`/api/recommendations/${itemId}/${action}`, {
+          method: 'POST',
+          headers: {'Content-Type': 'application/json'},
+          body: JSON.stringify({ note })
+        });
         const data = await res.json();
         if (res.ok && data.ok) {
           statusEl.textContent = `${action} succeeded, refreshing...`;
