@@ -9,6 +9,7 @@ from flask import Flask, jsonify, redirect, render_template, request, session, u
 
 WORKSPACE = Path("/Users/fox/.openclaw/workspace")
 KB_CLI = WORKSPACE / "scripts" / "kb" / "kb_cli.sh"
+FILE_APPROVAL_FLOW = WORKSPACE / "scripts" / "recs" / "file_approval_flow.py"
 KB_BASE_DIR = WORKSPACE / "rag_kb_data"
 ACTION_ACTOR = os.getenv("DASHBOARD_ACTOR", "dashboard")
 
@@ -69,8 +70,7 @@ def create_app() -> Flask:
             out["decision_note"] = ""
         return out
 
-    def _run_kb_json(args: list[str]) -> tuple[bool, dict[str, Any], str]:
-        cmd = [str(KB_CLI), "--base-dir", str(KB_BASE_DIR), *args]
+    def _run_json_command(cmd: list[str], failure_message: str) -> tuple[bool, dict[str, Any], str, int, list[str]]:
         proc = subprocess.run(cmd, capture_output=True, text=True)
         stdout = (proc.stdout or "").strip()
         stderr = (proc.stderr or "").strip()
@@ -86,15 +86,64 @@ def create_app() -> Flask:
 
         ok = proc.returncode == 0
         if not ok and not payload:
-            payload = {"error": stderr or "kb_cli command failed"}
-        return ok, payload, stderr
+            payload = {"error": stderr or failure_message}
+        return ok, payload, stderr, proc.returncode, cmd
+
+    def _run_kb_json(args: list[str]) -> tuple[bool, dict[str, Any], str, int, list[str]]:
+        cmd = [str(KB_CLI), "--base-dir", str(KB_BASE_DIR), *args]
+        return _run_json_command(cmd, "kb_cli command failed")
+
+    def _run_file_approval_flow(args: list[str]) -> tuple[bool, dict[str, Any], str, int, list[str]]:
+        cmd = ["python3", str(FILE_APPROVAL_FLOW), *args]
+        return _run_json_command(cmd, "file_approval_flow command failed")
+
+    def _coerce_text(value: Any) -> str:
+        if value is None:
+            return ""
+        if isinstance(value, str):
+            return value.strip()
+        if isinstance(value, dict):
+            return json.dumps(value)
+        return str(value).strip()
+
+    def _extract_error_detail(payload: dict[str, Any], stderr: str, returncode: int) -> str:
+        for key in ("error", "message", "detail"):
+            detail = _coerce_text(payload.get(key))
+            if detail:
+                return detail
+
+        raw = _coerce_text(payload.get("raw"))
+        if raw:
+            return raw
+
+        if isinstance(payload.get("approval"), dict):
+            approval_error = _coerce_text(payload["approval"].get("error"))
+            if approval_error:
+                return approval_error
+
+        err = _coerce_text(stderr)
+        if err:
+            lines = [line.strip() for line in err.splitlines() if line.strip()]
+            if lines:
+                return lines[-1]
+            return err
+
+        return f"kb_cli command failed with exit code {returncode}"
+
+    def _build_success_message(action: str, payload: dict[str, Any]) -> str:
+        if action == "approve":
+            source_id = payload.get("source_id")
+            if isinstance(source_id, int):
+                return f"Approved and ingested source #{source_id}."
+            return "Approved successfully."
+        return "Rejected successfully."
 
     def load_review_buckets(limit: int = 200) -> dict[str, Any]:
-        ok, payload, stderr = _run_kb_json(["review-buckets", "--limit", str(limit)])
+        ok, payload, stderr, returncode, _cmd = _run_kb_json(["review-buckets", "--limit", str(limit)])
         if not ok:
             return {
                 "ok": False,
-                "error": payload.get("error") or payload.get("raw") or stderr or "Failed to load review buckets",
+                "error": payload.get("error") or payload.get("raw") or stderr or f"Failed to load review buckets (exit {returncode})",
                 "run_date": "",
                 "counts": {"pending": 0, "approved": 0, "rejected": 0, "total": 0},
                 "pending": [],
@@ -173,7 +222,7 @@ def create_app() -> Flask:
 
         body = request.get_json(silent=True) or {}
         note = str((body.get("note") if isinstance(body, dict) else "") or "").strip()
-        cmd = [f"{action}-video", "--video-id", str(item.get("video_id") or ""), "--by", ACTION_ACTOR]
+        cmd = ["--decision", action, "--video-id", str(item.get("video_id") or ""), "--by", ACTION_ACTOR]
         source_id = item.get("source_id")
         if source_id is not None and str(source_id).strip() not in {"", "None"}:
             cmd += ["--source-id", str(source_id)]
@@ -182,11 +231,30 @@ def create_app() -> Flask:
             if url:
                 cmd += ["--url", url]
 
+        title = str(item.get("title") or "").strip()
+        if title:
+            cmd += ["--title", title]
+
         if note:
             cmd += ["--reason", note]
 
-        ok, payload, stderr = _run_kb_json(cmd)
+        ok, payload, stderr, returncode, full_cmd = _run_file_approval_flow(cmd)
         status = 200 if ok else 500
+        message = _build_success_message(action, payload) if ok else ""
+        error_detail = "" if ok else _extract_error_detail(payload, stderr, returncode)
+
+        if not ok:
+            app.logger.error(
+                "dashboard action failed: action=%s item_id=%s video_id=%s returncode=%s cmd=%s stderr=%s payload=%s",
+                action,
+                item_id,
+                item.get("video_id"),
+                returncode,
+                " ".join(full_cmd),
+                stderr,
+                payload,
+            )
+
         return (
             jsonify(
                 {
@@ -198,6 +266,9 @@ def create_app() -> Flask:
                     "note": note,
                     "result": payload,
                     "stderr": stderr,
+                    "returncode": returncode,
+                    "message": message,
+                    "error": error_detail,
                 }
             ),
             status,
