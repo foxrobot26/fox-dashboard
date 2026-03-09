@@ -16,6 +16,50 @@ body {
 }
 
 .top-actions { display: flex; gap: 0.6rem; align-items: center; }
+.view-toggle { display: inline-flex; gap: 0.35rem; }
+.view-btn.is-active { background: #3f7cff; }
+.view-btn:not(.is-active) { opacity: 0.9; }
+
+.tabs-wrap.list-view .grid {
+  grid-template-columns: 1fr;
+}
+
+.tabs-wrap.list-view .card {
+  border-radius: 8px;
+  padding: 0.8rem 0.9rem;
+}
+
+.tabs-wrap.list-view .card h2 {
+  font-size: 1rem;
+  margin: 0 0 0.35rem;
+}
+
+.tabs-wrap.list-view .note-input {
+  min-height: 56px;
+}
+
+.tabs-wrap.list-view .actions {
+  margin-top: 0.6rem;
+}
+
+.tabs-wrap.list-view .muted {
+  font-size: 0.85rem;
+}
+
+.tabs-wrap.list-view .notes-list {
+  margin-top: 0.25rem;
+}
+
+.tabs-wrap.list-view .notes-list li {
+  margin-bottom: 0.25rem;
+}
+
+@media (max-width: 760px) {
+  .top-actions {
+    flex-wrap: wrap;
+    justify-content: flex-end;
+  }
+}
 
 .tabs-wrap { padding: 1rem 1.5rem 2rem; }
 .tabs { display: flex; gap: 0.5rem; margin-bottom: 1rem; }

@@ -13,6 +13,10 @@
       <p class="muted">Run date: {{ data.run_date or 'n/a' }} · Pending {{ data.counts.pending }} · Approved {{ data.counts.approved }} · Rejected {{ data.counts.rejected }}</p>
     </div>
     <div class="top-actions">
+      <div class="view-toggle" role="group" aria-label="View mode">
+        <button type="button" class="secondary view-btn is-active" id="view-card" data-view="card">Card</button>
+        <button type="button" class="secondary view-btn" id="view-list" data-view="list">List</button>
+      </div>
       <button type="button" class="secondary" id="refresh-btn">Refresh</button>
       <form method="post" action="{{ url_for('logout') }}">
         <button type="submit" class="secondary">Log out</button>
@@ -123,6 +127,20 @@
 
   <script>
     const TAB_KEY = 'fox_dashboard_active_tab';
+    const VIEW_KEY = 'fox_dashboard_view_mode';
+
+    function setViewMode(mode, persist = true) {
+      const wrap = document.querySelector('.tabs-wrap');
+      if (!wrap) return;
+      const next = mode === 'list' ? 'list' : 'card';
+      wrap.classList.toggle('list-view', next === 'list');
+      document.querySelectorAll('.view-btn').forEach(btn => {
+        btn.classList.toggle('is-active', btn.dataset.view === next);
+      });
+      if (persist) {
+        try { localStorage.setItem(VIEW_KEY, next); } catch (_) {}
+      }
+    }
 
     function activateTab(name, persist = true) {
       document.querySelectorAll('.tab').forEach(btn => {
@@ -147,6 +165,16 @@
       if (saved && validTabs.has(saved)) {
         activateTab(saved, false);
       }
+    })();
+
+    document.querySelectorAll('.view-btn').forEach(btn => {
+      btn.addEventListener('click', () => setViewMode(btn.dataset.view, true));
+    });
+
+    (function restoreView() {
+      let saved = null;
+      try { saved = localStorage.getItem(VIEW_KEY); } catch (_) {}
+      setViewMode(saved === 'list' ? 'list' : 'card', false);
     })();
 
     function setBanner(message, type) {
