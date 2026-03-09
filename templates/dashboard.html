@@ -13,6 +13,7 @@
       <p class="muted">Run date: {{ data.run_date or 'n/a' }} · Pending {{ data.counts.pending }} · Approved {{ data.counts.approved }} · Rejected {{ data.counts.rejected }}</p>
     </div>
     <div class="top-actions">
+      <a href="{{ url_for('dashboard_graph') }}" class="secondary" style="display:inline-flex;align-items:center;text-decoration:none;padding:8px 12px;">Graph</a>
       <div class="view-toggle" role="group" aria-label="View mode">
         <button type="button" class="secondary view-btn is-active" id="view-card" data-view="card">Card</button>
         <button type="button" class="secondary view-btn" id="view-list" data-view="list">List</button>

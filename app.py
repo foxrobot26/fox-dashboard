@@ -5,8 +5,9 @@ import os
 import subprocess
 from pathlib import Path
 from typing import Any
+from urllib import error as urlerror, parse as urlparse, request as urlrequest
 
-from flask import Flask, jsonify, redirect, render_template, request, session, url_for
+from flask import Flask, Response, jsonify, redirect, render_template, request, session, url_for
 
 WORKSPACE = Path("/Users/fox/.openclaw/workspace")
 FILE_APPROVAL_FLOW = WORKSPACE / "scripts" / "recs" / "file_approval_flow.py"
@@ -16,6 +17,7 @@ REJECTED_DIR = WORKSPACE / "content" / "staging" / "rejected"
 DECISIONS_FILE = WORKSPACE / "content" / "staging" / "decisions" / "video-decisions.jsonl"
 VIDEO_NOTES_FILE = WORKSPACE / "content" / "staging" / "decisions" / "video-notes.jsonl"
 ACTION_ACTOR = os.getenv("DASHBOARD_ACTOR", "dashboard")
+NEO4J_BROWSER_BASE = os.getenv("NEO4J_BROWSER_BASE", "http://127.0.0.1:7474")
 
 
 def create_app() -> Flask:
@@ -313,6 +315,51 @@ def create_app() -> Flask:
             return redirect(url_for("login"))
         data = load_review_buckets(limit=200)
         return render_template("dashboard.html", data=data)
+
+    @app.route("/dashboard/graph")
+    def dashboard_graph():
+        if not _require_login():
+            return redirect(url_for("login"))
+        return render_template("graph.html")
+
+    @app.route("/dashboard/neo4j/", defaults={"path": ""}, methods=["GET", "POST", "PUT", "PATCH", "DELETE", "OPTIONS"])
+    @app.route("/dashboard/neo4j/<path:path>", methods=["GET", "POST", "PUT", "PATCH", "DELETE", "OPTIONS"])
+    def neo4j_proxy(path: str):
+        if not _require_login():
+            return jsonify({"ok": False, "error": "Unauthorized"}), 401
+
+        upstream = f"{NEO4J_BROWSER_BASE.rstrip('/')}/{path}"
+        if request.query_string:
+            upstream = f"{upstream}?{request.query_string.decode('utf-8', errors='ignore')}"
+
+        body = request.get_data() if request.method in {"POST", "PUT", "PATCH", "DELETE"} else None
+        req = urlrequest.Request(upstream, data=body, method=request.method)
+
+        content_type = request.headers.get("Content-Type")
+        if content_type:
+            req.add_header("Content-Type", content_type)
+
+        auth_header = request.headers.get("Authorization")
+        if auth_header:
+            req.add_header("Authorization", auth_header)
+
+        try:
+            with urlrequest.urlopen(req, timeout=60) as resp:
+                data = resp.read()
+                excluded = {"connection", "transfer-encoding", "content-encoding", "content-length", "x-frame-options"}
+                headers = [(k, v) for k, v in resp.getheaders() if k.lower() not in excluded]
+                headers.append(("X-Frame-Options", "SAMEORIGIN"))
+                return Response(data, status=resp.status, headers=headers)
+        except urlerror.HTTPError as e:
+            data = e.read() if e.fp else b""
+            headers = []
+            if hasattr(e, "headers") and e.headers:
+                excluded = {"connection", "transfer-encoding", "content-encoding", "content-length", "x-frame-options"}
+                headers = [(k, v) for k, v in e.headers.items() if k.lower() not in excluded]
+            headers.append(("X-Frame-Options", "SAMEORIGIN"))
+            return Response(data, status=e.code, headers=headers)
+        except Exception as e:
+            return jsonify({"ok": False, "error": f"Neo4j proxy error: {e}"}), 502
 
     @app.route("/api/review-buckets", methods=["GET"])
     def api_review_buckets():
