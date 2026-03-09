@@ -428,7 +428,7 @@ def create_app() -> Flask:
         cypher = """
         MATCH (n)
         WHERE toLower(coalesce(n.name, "")) CONTAINS toLower($q)
-        WITH n, size((n)--()) AS degree
+        WITH n, COUNT { (n)--() } AS degree
         RETURN coalesce(n.name, toString(id(n))) AS id,
                coalesce(n.name, toString(id(n))) AS label,
                coalesce(head(labels(n)), "Entity") AS `group`,
@@ -450,7 +450,7 @@ def create_app() -> Flask:
         limit = _clamp_int(request.args.get("limit"), default=12, min_value=1, max_value=50)
         cypher = """
         MATCH (n)
-        WITH n, size((n)--()) AS degree
+        WITH n, COUNT { (n)--() } AS degree
         WHERE degree > 0
         RETURN coalesce(n.name, toString(id(n))) AS id,
                coalesce(n.name, toString(id(n))) AS label,
@@ -488,7 +488,7 @@ def create_app() -> Flask:
         RETURN coalesce(n.name, toString(id(n))) AS id,
                coalesce(n.name, toString(id(n))) AS label,
                coalesce(head(labels(n)), "Entity") AS `group`,
-               size((n)--()) AS degree
+               COUNT {{ (n)--() }} AS degree
         """
 
         edge_query = f"""
