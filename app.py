@@ -429,8 +429,8 @@ def create_app() -> Flask:
         MATCH (n)
         WHERE toLower(coalesce(n.name, "")) CONTAINS toLower($q)
         WITH n, COUNT { (n)--() } AS degree
-        RETURN coalesce(n.name, toString(id(n))) AS id,
-               coalesce(n.name, toString(id(n))) AS label,
+        RETURN coalesce(nullIf(trim(n.name), ''), toString(id(n))) AS id,
+               coalesce(nullIf(trim(n.name), ''), toString(id(n))) AS label,
                coalesce(head(labels(n)), "Entity") AS `group`,
                degree
         ORDER BY degree DESC, label ASC
@@ -452,8 +452,8 @@ def create_app() -> Flask:
         MATCH (n)
         WITH n, COUNT { (n)--() } AS degree
         WHERE degree > 0
-        RETURN coalesce(n.name, toString(id(n))) AS id,
-               coalesce(n.name, toString(id(n))) AS label,
+        RETURN coalesce(nullIf(trim(n.name), ''), toString(id(n))) AS id,
+               coalesce(nullIf(trim(n.name), ''), toString(id(n))) AS label,
                coalesce(head(labels(n)), "Entity") AS `group`,
                degree
         ORDER BY degree DESC, label ASC
@@ -485,8 +485,8 @@ def create_app() -> Flask:
         WITH [c] + neighbors AS nodes
         UNWIND nodes AS n
         WITH DISTINCT n
-        RETURN coalesce(n.name, toString(id(n))) AS id,
-               coalesce(n.name, toString(id(n))) AS label,
+        RETURN coalesce(nullIf(trim(n.name), ''), toString(id(n))) AS id,
+               coalesce(nullIf(trim(n.name), ''), toString(id(n))) AS label,
                coalesce(head(labels(n)), "Entity") AS `group`,
                COUNT {{ (n)--() }} AS degree
         """
@@ -497,8 +497,8 @@ def create_app() -> Flask:
         UNWIND relationships(p) AS rel
         WITH DISTINCT rel
         LIMIT $edge_limit
-        RETURN coalesce(startNode(rel).name, toString(id(startNode(rel)))) AS `from`,
-               coalesce(endNode(rel).name, toString(id(endNode(rel)))) AS `to`,
+        RETURN coalesce(nullIf(trim(startNode(rel).name), ''), toString(id(startNode(rel)))) AS `from`,
+               coalesce(nullIf(trim(endNode(rel).name), ''), toString(id(endNode(rel)))) AS `to`,
                type(rel) AS label,
                coalesce(rel.fact, rel.evidence, rel.description, "") AS fact
         """
