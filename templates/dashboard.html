@@ -20,6 +20,8 @@
     </div>
   </header>
 
+  <div id="flash-feedback" class="status-banner" role="status" aria-live="polite"></div>
+
   {% if not data.ok %}
     <main class="grid">
       <section class="card">
@@ -68,7 +70,29 @@
             <p class="muted">Status: Approved</p>
             <p class="muted">Actioned by: {{ item.acted_by or 'unknown' }}</p>
             <p class="muted">Actioned at: {{ item.actioned_at or 'n/a' }}</p>
-            {% if item.decision_note %}<p><strong>Note:</strong> {{ item.decision_note }}</p>{% endif %}
+            {% if item.decision_note %}<p><strong>Decision note:</strong> {{ item.decision_note }}</p>{% endif %}
+
+            <h3 class="subhead">Notes history</h3>
+            {% if item.notes %}
+              <ul class="notes-list" id="notes-list-{{ item.video_id }}">
+                {% for note in item.notes %}
+                  <li>
+                    <span class="muted">{{ note.at or 'n/a' }}{% if note.by %} · {{ note.by }}{% endif %}</span><br />
+                    {{ note.note }}
+                  </li>
+                {% endfor %}
+              </ul>
+            {% else %}
+              <p class="muted" id="notes-empty-{{ item.video_id }}">No notes yet.</p>
+              <ul class="notes-list" id="notes-list-{{ item.video_id }}" style="display:none"></ul>
+            {% endif %}
+
+            <label class="muted" for="approved-note-{{ item.video_id }}">Add note</label>
+            <textarea id="approved-note-{{ item.video_id }}" class="note-input" placeholder="Add context from your rewatch"></textarea>
+            <div class="actions">
+              <button data-video-id="{{ item.video_id }}" class="secondary add-note-btn">Save note</button>
+            </div>
+            <p class="status" id="approved-status-{{ item.video_id }}"></p>
           </article>
           {% endfor %}
           {% if not data.approved %}
@@ -111,10 +135,26 @@
       btn.addEventListener('click', () => activateTab(btn.dataset.tab));
     });
 
+    function setBanner(message, type) {
+      const banner = document.getElementById('flash-feedback');
+      if (!banner) return;
+      if (!message) {
+        banner.textContent = '';
+        banner.className = 'status-banner';
+        return;
+      }
+      banner.textContent = message;
+      banner.className = `status-banner ${type || ''}`.trim();
+    }
+
     async function runAction(itemId, action) {
       const statusEl = document.getElementById(`status-${itemId}`);
+      const cardEl = document.getElementById(`card-${itemId}`);
+      const cardButtons = cardEl ? cardEl.querySelectorAll('button[data-item-id]') : [];
+      cardButtons.forEach(btn => btn.disabled = true);
       statusEl.textContent = `Submitting ${action}...`;
       statusEl.className = 'status';
+      setBanner('', '');
 
       try {
         const noteEl = document.getElementById(`note-${itemId}`);
@@ -126,22 +166,82 @@
         });
         const data = await res.json();
         if (res.ok && data.ok) {
-          statusEl.textContent = `${action} succeeded, refreshing...`;
+          const message = data.message || `${action} succeeded.`;
+          statusEl.textContent = `${message} Refreshing...`;
           statusEl.className = 'status ok';
-          setTimeout(() => window.location.reload(), 600);
+          setBanner(message, 'ok');
+          setTimeout(() => window.location.reload(), 900);
         } else {
-          const detail = data.error || data.stderr || JSON.stringify(data.result || {}) || 'Unknown error';
+          const detail = data.error || data.message || data.stderr || JSON.stringify(data.result || {}) || 'Unknown error';
           statusEl.textContent = `${action} failed: ${detail}`;
           statusEl.className = 'status err';
+          setBanner(`${action} failed: ${detail}`, 'err');
+          cardButtons.forEach(btn => btn.disabled = false);
         }
       } catch (err) {
-        statusEl.textContent = `${action} failed: ${err}`;
+        const detail = err?.message || String(err);
+        statusEl.textContent = `${action} failed: ${detail}`;
         statusEl.className = 'status err';
+        setBanner(`${action} failed: ${detail}`, 'err');
+        cardButtons.forEach(btn => btn.disabled = false);
       }
     }
 
     document.querySelectorAll('button[data-item-id]').forEach(btn => {
       btn.addEventListener('click', () => runAction(btn.dataset.itemId, btn.dataset.action));
+    });
+
+    async function saveApprovedNote(videoId) {
+      const input = document.getElementById(`approved-note-${videoId}`);
+      const statusEl = document.getElementById(`approved-status-${videoId}`);
+      const note = input?.value?.trim() || '';
+      if (!note) {
+        statusEl.textContent = 'Note cannot be empty.';
+        statusEl.className = 'status err';
+        return;
+      }
+
+      statusEl.textContent = 'Saving note...';
+      statusEl.className = 'status';
+      try {
+        const res = await fetch(`/api/videos/${encodeURIComponent(videoId)}/notes`, {
+          method: 'POST',
+          headers: {'Content-Type': 'application/json'},
+          body: JSON.stringify({ note })
+        });
+        const data = await res.json();
+        if (!res.ok || !data.ok) {
+          const detail = data.error || data.message || 'Unknown error';
+          statusEl.textContent = `Save failed: ${detail}`;
+          statusEl.className = 'status err';
+          return;
+        }
+
+        input.value = '';
+        statusEl.textContent = data.message || 'Note saved.';
+        statusEl.className = 'status ok';
+
+        const emptyEl = document.getElementById(`notes-empty-${videoId}`);
+        if (emptyEl) emptyEl.style.display = 'none';
+        const listEl = document.getElementById(`notes-list-${videoId}`);
+        if (listEl) {
+          listEl.style.display = '';
+          const noteObj = data.note || {};
+          const li = document.createElement('li');
+          const at = noteObj.at || 'n/a';
+          const by = noteObj.by ? ` · ${noteObj.by}` : '';
+          li.innerHTML = `<span class="muted">${at}${by}</span><br />${noteObj.note || ''}`;
+          listEl.appendChild(li);
+        }
+      } catch (err) {
+        const detail = err?.message || String(err);
+        statusEl.textContent = `Save failed: ${detail}`;
+        statusEl.className = 'status err';
+      }
+    }
+
+    document.querySelectorAll('.add-note-btn').forEach(btn => {
+      btn.addEventListener('click', () => saveApprovedNote(btn.dataset.videoId));
     });
 
     document.getElementById('refresh-btn')?.addEventListener('click', () => window.location.reload());

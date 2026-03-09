@@ -1,3 +1,4 @@
+import datetime as dt
 import hashlib
 import json
 import os
@@ -13,6 +14,7 @@ PENDING_DIR = WORKSPACE / "content" / "staging" / "pending"
 APPROVED_DIR = WORKSPACE / "content" / "approved" / "transcripts"
 REJECTED_DIR = WORKSPACE / "content" / "staging" / "rejected"
 DECISIONS_FILE = WORKSPACE / "content" / "staging" / "decisions" / "video-decisions.jsonl"
+VIDEO_NOTES_FILE = WORKSPACE / "content" / "staging" / "decisions" / "video-notes.jsonl"
 ACTION_ACTOR = os.getenv("DASHBOARD_ACTOR", "dashboard")
 
 
@@ -176,7 +178,48 @@ def create_app() -> Flask:
                 events[vid] = row
         return events
 
-    def _items_from_dir(path: Path, bucket: str, decision_events: dict[str, dict[str, Any]], limit: int) -> list[dict[str, Any]]:
+    def _load_video_notes() -> dict[str, list[dict[str, Any]]]:
+        notes: dict[str, list[dict[str, Any]]] = {}
+        if not VIDEO_NOTES_FILE.exists():
+            return notes
+        for line in VIDEO_NOTES_FILE.read_text(errors="ignore").splitlines():
+            line = line.strip()
+            if not line:
+                continue
+            try:
+                row = json.loads(line)
+            except Exception:
+                continue
+            if not isinstance(row, dict):
+                continue
+            vid = str(row.get("video_id") or "").strip()
+            note = str(row.get("note") or "").strip()
+            if not vid or not note:
+                continue
+            entry = {
+                "at": str(row.get("at") or ""),
+                "by": str(row.get("by") or ""),
+                "note": note,
+            }
+            notes.setdefault(vid, []).append(entry)
+
+        for vid in notes:
+            notes[vid].sort(key=lambda x: x.get("at") or "")
+        return notes
+
+    def _append_video_note(video_id: str, note: str, by: str) -> dict[str, Any]:
+        VIDEO_NOTES_FILE.parent.mkdir(parents=True, exist_ok=True)
+        row = {
+            "at": dt.datetime.now(dt.timezone.utc).replace(microsecond=0).isoformat(),
+            "video_id": video_id,
+            "note": note,
+            "by": by,
+        }
+        with VIDEO_NOTES_FILE.open("a") as f:
+            f.write(json.dumps(row, ensure_ascii=False) + "\n")
+        return row
+
+    def _items_from_dir(path: Path, bucket: str, decision_events: dict[str, dict[str, Any]], notes_by_video: dict[str, list[dict[str, Any]]], limit: int) -> list[dict[str, Any]]:
         if not path.exists():
             return []
         items: list[dict[str, Any]] = []
@@ -189,6 +232,7 @@ def create_app() -> Flask:
             url = str(fm.get("url") or "")
             decision_event = decision_events.get(video_id, {}) if video_id else {}
             metadata = {"title": title, "uploader": uploader}
+            note_history = list(notes_by_video.get(video_id, [])) if video_id else []
             row = {
                 "video_id": video_id,
                 "url": url,
@@ -203,15 +247,19 @@ def create_app() -> Flask:
                 if decision_event
                 else {},
             }
-            items.append(_normalize_bucket_item(row, bucket))
+            normalized = _normalize_bucket_item(row, bucket)
+            normalized["notes"] = note_history
+            normalized["latest_note"] = note_history[-1]["note"] if note_history else ""
+            items.append(normalized)
         return items
 
     def load_review_buckets(limit: int = 200) -> dict[str, Any]:
         try:
             decision_events = _load_decision_events()
-            pending = _items_from_dir(PENDING_DIR, "pending", decision_events, limit)
-            approved = _items_from_dir(APPROVED_DIR, "approved", decision_events, limit)
-            rejected = _items_from_dir(REJECTED_DIR, "rejected", decision_events, limit)
+            notes_by_video = _load_video_notes()
+            pending = _items_from_dir(PENDING_DIR, "pending", decision_events, notes_by_video, limit)
+            approved = _items_from_dir(APPROVED_DIR, "approved", decision_events, notes_by_video, limit)
+            rejected = _items_from_dir(REJECTED_DIR, "rejected", decision_events, notes_by_video, limit)
         except Exception as exc:
             return {
                 "ok": False,
@@ -340,6 +388,35 @@ def create_app() -> Flask:
             ),
             status,
         )
+
+    @app.route("/api/videos/<video_id>/notes", methods=["POST"])
+    def add_video_note(video_id: str):
+        if not _require_login():
+            return jsonify({"ok": False, "error": "Unauthorized"}), 401
+
+        resolved_video_id = str(video_id or "").strip()
+        if not resolved_video_id:
+            return jsonify({"ok": False, "error": "Missing video_id"}), 400
+
+        body = request.get_json(silent=True) or {}
+        note = str((body.get("note") if isinstance(body, dict) else "") or "").strip()
+        if not note:
+            return jsonify({"ok": False, "error": "Note cannot be empty"}), 400
+
+        item = None
+        data = load_review_buckets(limit=1000)
+        for bucket in ("approved", "pending", "rejected"):
+            candidate = next((r for r in (data.get(bucket) or []) if str(r.get("video_id") or "").strip() == resolved_video_id), None)
+            if candidate:
+                item = candidate
+                break
+
+        if not item:
+            return jsonify({"ok": False, "error": "Video not found in dashboard buckets"}), 404
+
+        row = _append_video_note(video_id=resolved_video_id, note=note, by=ACTION_ACTOR)
+        notes = _load_video_notes().get(resolved_video_id, [])
+        return jsonify({"ok": True, "video_id": resolved_video_id, "note": row, "notes": notes, "message": "Note saved."})
 
     return app
 

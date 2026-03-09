@@ -89,3 +89,33 @@ a { color: #9ec1ff; }
   color: #fff;
   resize: vertical;
 }
+
+
+.status-banner {
+  margin: 0.8rem 1.5rem;
+  min-height: 1.2rem;
+  font-size: 0.95rem;
+}
+
+.status-banner.ok { color: #7ae7ad; }
+.status-banner.err { color: #ff9b9b; }
+
+button:disabled {
+  opacity: 0.55;
+  cursor: not-allowed;
+}
+
+.subhead {
+  margin: 1rem 0 0.4rem;
+  font-size: 0.95rem;
+  color: #c7d2e5;
+}
+
+.notes-list {
+  margin: 0.4rem 0 0.8rem;
+  padding-left: 1.1rem;
+}
+
+.notes-list li {
+  margin-bottom: 0.45rem;
+}
