@@ -5,9 +5,16 @@
   <meta name="viewport" content="width=device-width, initial-scale=1.0" />
   <title>Graph · Video Curation Dashboard</title>
   <link rel="stylesheet" href="{{ url_for('static', filename='style.css') }}" />
+  <script src="https://unpkg.com/vis-network@9.1.9/dist/vis-network.min.js"></script>
   <style>
-    .graph-wrap { height: calc(100vh - 150px); min-height: 640px; }
-    .graph-iframe { width: 100%; height: 100%; border: 1px solid #2a2a2a; border-radius: 8px; background: #111; }
+    .layout { display: grid; grid-template-columns: 280px 1fr; gap: 16px; min-height: calc(100vh - 170px); }
+    .panel { border: 1px solid #2a2a2a; border-radius: 8px; padding: 12px; background: #171717; }
+    .controls { display: flex; gap: 8px; margin-bottom: 10px; }
+    .controls input { flex: 1; }
+    .muted-xs { font-size: 12px; color: #8d8d8d; }
+    #graphCanvas { height: calc(100vh - 230px); min-height: 520px; border: 1px solid #2a2a2a; border-radius: 8px; background: #111; }
+    #topList { list-style: none; margin: 0; padding: 0; display: grid; gap: 6px; }
+    #topList button { width: 100%; text-align: left; }
     .topbar .nav-links { display:flex; gap:12px; margin-top:6px; }
     .topbar .nav-links a { color:#9ecbff; text-decoration:none; font-size:14px; }
   </style>
@@ -15,8 +22,8 @@
 <body>
   <header class="topbar">
     <div>
-      <h1>Graph</h1>
-      <p class="muted">Neo4j Browser embedded behind dashboard auth</p>
+      <h1>Graph Explorer</h1>
+      <p class="muted">Entity graph powered by server-side Neo4j APIs</p>
       <div class="nav-links">
         <a href="{{ url_for('dashboard') }}">← Review Dashboard</a>
       </div>
@@ -28,8 +35,149 @@
     </div>
   </header>
 
-  <main class="graph-wrap">
-    <iframe class="graph-iframe" src="{{ url_for('neo4j_proxy', path='browser/') }}" title="Neo4j Browser"></iframe>
+  <main class="layout">
+    <section class="panel">
+      <div class="controls">
+        <input id="searchInput" type="text" placeholder="Search entity name" />
+        <button id="searchBtn" type="button">Search</button>
+      </div>
+      <div class="controls">
+        <button id="hops1" type="button" class="secondary">1 hop</button>
+        <button id="hops2" type="button" class="secondary">2 hops</button>
+      </div>
+      <p id="status" class="muted-xs">Ready.</p>
+      <hr style="border-color:#2a2a2a; margin: 12px 0;" />
+      <h3 style="margin:0 0 8px 0;">Top entities</h3>
+      <ul id="topList"></ul>
+    </section>
+
+    <section>
+      <div id="graphCanvas"></div>
+    </section>
   </main>
+
+  <script>
+    const statusEl = document.getElementById('status');
+    const searchInput = document.getElementById('searchInput');
+    const topList = document.getElementById('topList');
+    let currentHops = 1;
+
+    const visData = {
+      nodes: new vis.DataSet([]),
+      edges: new vis.DataSet([]),
+    };
+
+    const network = new vis.Network(document.getElementById('graphCanvas'), visData, {
+      autoResize: true,
+      interaction: { hover: true },
+      nodes: { shape: 'dot', size: 14, font: { color: '#e6e6e6' } },
+      edges: { color: '#6f6f6f', arrows: { to: { enabled: false } }, smooth: true },
+      physics: { stabilization: true, barnesHut: { gravitationalConstant: -4500 } }
+    });
+
+    function setStatus(msg, isError = false) {
+      statusEl.textContent = msg;
+      statusEl.style.color = isError ? '#ff9b9b' : '#8d8d8d';
+    }
+
+    async function getJson(url) {
+      const res = await fetch(url, { credentials: 'same-origin' });
+      const data = await res.json().catch(() => ({}));
+      if (!res.ok || data.ok === false) {
+        throw new Error(data.error || `Request failed (${res.status})`);
+      }
+      return data;
+    }
+
+    function renderGraph(payload) {
+      const nodes = (payload.nodes || []).map(n => ({
+        id: n.id,
+        label: n.label || n.id,
+        group: n.group || 'Entity',
+        value: Math.max(1, Number(n.degree || 1))
+      }));
+      const edges = (payload.edges || []).map((e, idx) => ({
+        id: `${e.from}->${e.to}:${e.label || ''}:${idx}`,
+        from: e.from,
+        to: e.to,
+        label: e.label || '',
+        title: e.fact || ''
+      }));
+      visData.nodes.clear();
+      visData.edges.clear();
+      visData.nodes.add(nodes);
+      visData.edges.add(edges);
+      network.fit({ animation: true });
+    }
+
+    async function loadNeighbors(entity) {
+      if (!entity) return;
+      setStatus(`Loading neighbors for ${entity}...`);
+      try {
+        const data = await getJson(`/api/graph/neighbors?entity=${encodeURIComponent(entity)}&hops=${currentHops}&limit=120`);
+        renderGraph(data);
+        setStatus(`Loaded ${data.nodes.length} nodes / ${data.edges.length} edges for ${entity}.`);
+      } catch (err) {
+        setStatus(err.message, true);
+      }
+    }
+
+    async function doSearch() {
+      const q = (searchInput.value || '').trim();
+      if (!q) {
+        setStatus('Enter a search term.', true);
+        return;
+      }
+      setStatus(`Searching for "${q}"...`);
+      try {
+        const data = await getJson(`/api/graph/search?q=${encodeURIComponent(q)}&limit=10`);
+        const first = (data.nodes || [])[0];
+        if (!first) {
+          setStatus('No entity match found.', true);
+          return;
+        }
+        await loadNeighbors(first.id);
+      } catch (err) {
+        setStatus(err.message, true);
+      }
+    }
+
+    async function loadTop() {
+      try {
+        const data = await getJson('/api/graph/top?limit=15');
+        topList.innerHTML = '';
+        for (const n of data.nodes || []) {
+          const li = document.createElement('li');
+          const btn = document.createElement('button');
+          btn.type = 'button';
+          btn.className = 'secondary';
+          btn.textContent = `${n.label} (${n.degree || 0})`;
+          btn.addEventListener('click', () => {
+            searchInput.value = n.id;
+            loadNeighbors(n.id);
+          });
+          li.appendChild(btn);
+          topList.appendChild(li);
+        }
+      } catch (err) {
+        setStatus(`Top entities failed: ${err.message}`, true);
+      }
+    }
+
+    document.getElementById('searchBtn').addEventListener('click', doSearch);
+    searchInput.addEventListener('keydown', (e) => {
+      if (e.key === 'Enter') doSearch();
+    });
+    document.getElementById('hops1').addEventListener('click', () => {
+      currentHops = 1;
+      setStatus('Hop depth set to 1.');
+    });
+    document.getElementById('hops2').addEventListener('click', () => {
+      currentHops = 2;
+      setStatus('Hop depth set to 2.');
+    });
+
+    loadTop();
+  </script>
 </body>
 </html>

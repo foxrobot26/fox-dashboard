@@ -1,3 +1,4 @@
+import base64
 import datetime as dt
 import hashlib
 import json
@@ -18,6 +19,58 @@ DECISIONS_FILE = WORKSPACE / "content" / "staging" / "decisions" / "video-decisi
 VIDEO_NOTES_FILE = WORKSPACE / "content" / "staging" / "decisions" / "video-notes.jsonl"
 ACTION_ACTOR = os.getenv("DASHBOARD_ACTOR", "dashboard")
 NEO4J_BROWSER_BASE = os.getenv("NEO4J_BROWSER_BASE", "http://127.0.0.1:7474")
+NEO4J_HTTP_ENDPOINT = os.getenv("NEO4J_HTTP_ENDPOINT", "http://127.0.0.1:7474/db/neo4j/tx/commit")
+NEO4J_USER = os.getenv("NEO4J_USER", "neo4j")
+NEO4J_PASSWORD = os.getenv("NEO4J_PASSWORD", "")
+
+
+def _clamp_int(value: Any, default: int, min_value: int, max_value: int) -> int:
+    try:
+        out = int(str(value).strip())
+    except Exception:
+        return default
+    return max(min_value, min(max_value, out))
+
+
+def _neo4j_query(cypher: str, params: dict[str, Any] | None = None) -> list[dict[str, Any]]:
+    payload = {
+        "statements": [
+            {
+                "statement": cypher,
+                "parameters": params or {},
+                "resultDataContents": ["row"],
+            }
+        ]
+    }
+    req = urlrequest.Request(
+        NEO4J_HTTP_ENDPOINT,
+        data=json.dumps(payload).encode("utf-8"),
+        method="POST",
+    )
+    req.add_header("Content-Type", "application/json")
+
+    token = base64.b64encode(f"{NEO4J_USER}:{NEO4J_PASSWORD}".encode("utf-8")).decode("ascii")
+    req.add_header("Authorization", f"Basic {token}")
+
+    with urlrequest.urlopen(req, timeout=30) as resp:
+        body = json.loads(resp.read().decode("utf-8"))
+
+    errors = body.get("errors") or []
+    if errors:
+        first = errors[0] if isinstance(errors[0], dict) else {"message": str(errors[0])}
+        raise RuntimeError(str(first.get("message") or "Neo4j query failed"))
+
+    results = body.get("results") or []
+    if not results:
+        return []
+    data = results[0].get("data") or []
+    columns = results[0].get("columns") or []
+    rows: list[dict[str, Any]] = []
+    for entry in data:
+        row = entry.get("row") or []
+        mapped = {str(columns[i]): row[i] for i in range(min(len(columns), len(row)))}
+        rows.append(mapped)
+    return rows
 
 
 def create_app() -> Flask:
@@ -360,6 +413,107 @@ def create_app() -> Flask:
             return Response(data, status=e.code, headers=headers)
         except Exception as e:
             return jsonify({"ok": False, "error": f"Neo4j proxy error: {e}"}), 502
+
+
+    @app.route("/api/graph/search", methods=["GET"])
+    def api_graph_search():
+        if not _require_login():
+            return jsonify({"ok": False, "error": "Unauthorized"}), 401
+
+        query = str(request.args.get("q") or "").strip()
+        if len(query) < 1:
+            return jsonify({"ok": True, "nodes": []})
+
+        limit = _clamp_int(request.args.get("limit"), default=10, min_value=1, max_value=50)
+        cypher = """
+        MATCH (n)
+        WHERE toLower(coalesce(n.name, "")) CONTAINS toLower($q)
+        WITH n, size((n)--()) AS degree
+        RETURN coalesce(n.name, toString(id(n))) AS id,
+               coalesce(n.name, toString(id(n))) AS label,
+               coalesce(head(labels(n)), "Entity") AS `group`,
+               degree
+        ORDER BY degree DESC, label ASC
+        LIMIT $limit
+        """
+        try:
+            rows = _neo4j_query(cypher, {"q": query, "limit": limit})
+            return jsonify({"ok": True, "nodes": rows})
+        except Exception as exc:
+            return jsonify({"ok": False, "error": f"Graph search failed: {exc}"}), 502
+
+    @app.route("/api/graph/top", methods=["GET"])
+    def api_graph_top():
+        if not _require_login():
+            return jsonify({"ok": False, "error": "Unauthorized"}), 401
+
+        limit = _clamp_int(request.args.get("limit"), default=12, min_value=1, max_value=50)
+        cypher = """
+        MATCH (n)
+        WITH n, size((n)--()) AS degree
+        WHERE degree > 0
+        RETURN coalesce(n.name, toString(id(n))) AS id,
+               coalesce(n.name, toString(id(n))) AS label,
+               coalesce(head(labels(n)), "Entity") AS `group`,
+               degree
+        ORDER BY degree DESC, label ASC
+        LIMIT $limit
+        """
+        try:
+            rows = _neo4j_query(cypher, {"limit": limit})
+            return jsonify({"ok": True, "nodes": rows})
+        except Exception as exc:
+            return jsonify({"ok": False, "error": f"Top entities query failed: {exc}"}), 502
+
+    @app.route("/api/graph/neighbors", methods=["GET"])
+    def api_graph_neighbors():
+        if not _require_login():
+            return jsonify({"ok": False, "error": "Unauthorized"}), 401
+
+        entity = str(request.args.get("entity") or "").strip()
+        if not entity:
+            return jsonify({"ok": False, "error": "Missing entity"}), 400
+
+        hops = _clamp_int(request.args.get("hops"), default=1, min_value=1, max_value=2)
+        limit = _clamp_int(request.args.get("limit"), default=80, min_value=1, max_value=200)
+        edge_limit = min(400, max(20, limit * 4))
+
+        node_query = f"""
+        MATCH (c {{name: $entity}})
+        OPTIONAL MATCH (c)-[*1..{hops}]-(n)
+        WITH c, collect(DISTINCT n)[0..$limit] AS neighbors
+        WITH [c] + neighbors AS nodes
+        UNWIND nodes AS n
+        WITH DISTINCT n
+        RETURN coalesce(n.name, toString(id(n))) AS id,
+               coalesce(n.name, toString(id(n))) AS label,
+               coalesce(head(labels(n)), "Entity") AS `group`,
+               size((n)--()) AS degree
+        """
+
+        edge_query = f"""
+        MATCH (c {{name: $entity}})
+        MATCH p=(c)-[*1..{hops}]-(n)
+        UNWIND relationships(p) AS rel
+        WITH DISTINCT rel
+        LIMIT $edge_limit
+        RETURN coalesce(startNode(rel).name, toString(id(startNode(rel)))) AS `from`,
+               coalesce(endNode(rel).name, toString(id(endNode(rel)))) AS `to`,
+               type(rel) AS label,
+               coalesce(rel.fact, rel.evidence, rel.description, "") AS fact
+        """
+
+        try:
+            nodes = _neo4j_query(node_query, {"entity": entity, "limit": limit})
+            if not nodes:
+                return jsonify({"ok": False, "error": "Entity not found"}), 404
+
+            edges = _neo4j_query(edge_query, {"entity": entity, "edge_limit": edge_limit})
+            node_ids = {str(n.get("id")) for n in nodes}
+            safe_edges = [e for e in edges if str(e.get("from")) in node_ids and str(e.get("to")) in node_ids]
+            return jsonify({"ok": True, "nodes": nodes, "edges": safe_edges})
+        except Exception as exc:
+            return jsonify({"ok": False, "error": f"Neighbor query failed: {exc}"}), 502
 
     @app.route("/api/review-buckets", methods=["GET"])
     def api_review_buckets():
