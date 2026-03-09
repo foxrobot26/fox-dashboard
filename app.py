@@ -8,9 +8,11 @@ from typing import Any
 from flask import Flask, jsonify, redirect, render_template, request, session, url_for
 
 WORKSPACE = Path("/Users/fox/.openclaw/workspace")
-KB_CLI = WORKSPACE / "scripts" / "kb" / "kb_cli.sh"
 FILE_APPROVAL_FLOW = WORKSPACE / "scripts" / "recs" / "file_approval_flow.py"
-KB_BASE_DIR = WORKSPACE / "rag_kb_data"
+PENDING_DIR = WORKSPACE / "content" / "staging" / "pending"
+APPROVED_DIR = WORKSPACE / "content" / "approved" / "transcripts"
+REJECTED_DIR = WORKSPACE / "content" / "staging" / "rejected"
+DECISIONS_FILE = WORKSPACE / "content" / "staging" / "decisions" / "video-decisions.jsonl"
 ACTION_ACTOR = os.getenv("DASHBOARD_ACTOR", "dashboard")
 
 
@@ -89,10 +91,6 @@ def create_app() -> Flask:
             payload = {"error": stderr or failure_message}
         return ok, payload, stderr, proc.returncode, cmd
 
-    def _run_kb_json(args: list[str]) -> tuple[bool, dict[str, Any], str, int, list[str]]:
-        cmd = [str(KB_CLI), "--base-dir", str(KB_BASE_DIR), *args]
-        return _run_json_command(cmd, "kb_cli command failed")
-
     def _run_file_approval_flow(args: list[str]) -> tuple[bool, dict[str, Any], str, int, list[str]]:
         cmd = ["python3", str(FILE_APPROVAL_FLOW), *args]
         return _run_json_command(cmd, "file_approval_flow command failed")
@@ -138,12 +136,86 @@ def create_app() -> Flask:
             return "Approved successfully."
         return "Rejected successfully."
 
+    def _parse_frontmatter(path: Path) -> dict[str, Any]:
+        text = path.read_text(errors="ignore")
+        if not text.startswith("---\n"):
+            return {}
+        end = text.find("\n---\n", 4)
+        if end < 0:
+            return {}
+        block = text[4:end].splitlines()
+        out: dict[str, Any] = {}
+        for line in block:
+            if ":" not in line:
+                continue
+            k, v = line.split(":", 1)
+            k = k.strip()
+            v = v.strip()
+            try:
+                out[k] = json.loads(v)
+            except Exception:
+                out[k] = v.strip('"')
+        return out
+
+    def _load_decision_events() -> dict[str, dict[str, Any]]:
+        events: dict[str, dict[str, Any]] = {}
+        if not DECISIONS_FILE.exists():
+            return events
+        for line in DECISIONS_FILE.read_text(errors="ignore").splitlines():
+            line = line.strip()
+            if not line:
+                continue
+            try:
+                row = json.loads(line)
+            except Exception:
+                continue
+            if not isinstance(row, dict):
+                continue
+            vid = str(row.get("video_id") or "").strip()
+            if vid:
+                events[vid] = row
+        return events
+
+    def _items_from_dir(path: Path, bucket: str, decision_events: dict[str, dict[str, Any]], limit: int) -> list[dict[str, Any]]:
+        if not path.exists():
+            return []
+        items: list[dict[str, Any]] = []
+        files = sorted(path.glob("*.md"), key=lambda p: p.stat().st_mtime, reverse=True)
+        for p in files[:limit]:
+            fm = _parse_frontmatter(p)
+            video_id = str(fm.get("video_id") or "").strip()
+            title = str(fm.get("title") or video_id or p.stem)
+            uploader = str(fm.get("uploader") or "")
+            url = str(fm.get("url") or "")
+            decision_event = decision_events.get(video_id, {}) if video_id else {}
+            metadata = {"title": title, "uploader": uploader}
+            row = {
+                "video_id": video_id,
+                "url": url,
+                "source_id": None,
+                "created_at": str(fm.get("decided_at") or fm.get("run_date") or ""),
+                "metadata_json": json.dumps(metadata),
+                "decision_event": {
+                    "created_at": decision_event.get("at") or "",
+                    "reason": decision_event.get("reason") or "",
+                    "metadata_json": json.dumps({"actor": decision_event.get("by") or ""}),
+                }
+                if decision_event
+                else {},
+            }
+            items.append(_normalize_bucket_item(row, bucket))
+        return items
+
     def load_review_buckets(limit: int = 200) -> dict[str, Any]:
-        ok, payload, stderr, returncode, _cmd = _run_kb_json(["review-buckets", "--limit", str(limit)])
-        if not ok:
+        try:
+            decision_events = _load_decision_events()
+            pending = _items_from_dir(PENDING_DIR, "pending", decision_events, limit)
+            approved = _items_from_dir(APPROVED_DIR, "approved", decision_events, limit)
+            rejected = _items_from_dir(REJECTED_DIR, "rejected", decision_events, limit)
+        except Exception as exc:
             return {
                 "ok": False,
-                "error": payload.get("error") or payload.get("raw") or stderr or f"Failed to load review buckets (exit {returncode})",
+                "error": f"Failed to load review buckets: {exc}",
                 "run_date": "",
                 "counts": {"pending": 0, "approved": 0, "rejected": 0, "total": 0},
                 "pending": [],
@@ -151,19 +223,14 @@ def create_app() -> Flask:
                 "rejected": [],
             }
 
-        pending = [_normalize_bucket_item(i, "pending") for i in list(payload.get("pending") or []) if isinstance(i, dict)]
-        approved = [_normalize_bucket_item(i, "approved") for i in list(payload.get("approved") or []) if isinstance(i, dict)]
-        rejected = [_normalize_bucket_item(i, "rejected") for i in list(payload.get("rejected") or []) if isinstance(i, dict)]
-
-        counts = payload.get("counts") if isinstance(payload.get("counts"), dict) else {}
         return {
             "ok": True,
-            "run_date": str(payload.get("run_date") or ""),
+            "run_date": "",
             "counts": {
-                "pending": int(counts.get("pending", len(pending)) or 0),
-                "approved": int(counts.get("approved", len(approved)) or 0),
-                "rejected": int(counts.get("rejected", len(rejected)) or 0),
-                "total": int(counts.get("total", len(pending) + len(approved) + len(rejected)) or 0),
+                "pending": len(pending),
+                "approved": len(approved),
+                "rejected": len(rejected),
+                "total": len(pending) + len(approved) + len(rejected),
             },
             "pending": pending,
             "approved": approved,
