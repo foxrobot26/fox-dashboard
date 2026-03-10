@@ -455,7 +455,10 @@ def create_app() -> Flask:
         RETURN coalesce(nullIf(trim(n.name), ''), toString(id(n))) AS id,
                coalesce(nullIf(trim(n.name), ''), toString(id(n))) AS label,
                coalesce(head(labels(n)), "Entity") AS `group`,
-               degree
+               degree,
+               labels(n) AS labels,
+               properties(n) AS props,
+               any(lbl IN labels(n) WHERE lbl IN ["Episodic", "Episode"]) AS is_episodic
         ORDER BY degree DESC, label ASC
         LIMIT $limit
         """
@@ -485,10 +488,17 @@ def create_app() -> Flask:
         WITH [c] + neighbors AS nodes
         UNWIND nodes AS n
         WITH DISTINCT n
+        OPTIONAL MATCH (n)--(adj)
+        WITH n, collect(DISTINCT adj) AS adjacent
         RETURN coalesce(nullIf(trim(n.name), ''), toString(id(n))) AS id,
                coalesce(nullIf(trim(n.name), ''), toString(id(n))) AS label,
                coalesce(head(labels(n)), "Entity") AS `group`,
-               COUNT {{ (n)--() }} AS degree
+               COUNT {{ (n)--() }} AS degree,
+               labels(n) AS labels,
+               properties(n) AS props,
+               any(lbl IN labels(n) WHERE lbl IN ["Episodic", "Episode"]) AS is_episodic,
+               [ep IN adjacent WHERE any(lbl IN labels(ep) WHERE lbl IN ["Episodic", "Episode"]) | coalesce(nullIf(trim(ep.name), ''), toString(id(ep)))][0..25] AS linked_episodes,
+               [ent IN adjacent WHERE NOT any(lbl IN labels(ent) WHERE lbl IN ["Episodic", "Episode"]) | coalesce(nullIf(trim(ent.name), ''), toString(id(ent)))][0..25] AS linked_entities
         """
 
         edge_query = f"""
@@ -500,7 +510,10 @@ def create_app() -> Flask:
         RETURN coalesce(nullIf(trim(startNode(rel).name), ''), toString(id(startNode(rel)))) AS `from`,
                coalesce(nullIf(trim(endNode(rel).name), ''), toString(id(endNode(rel)))) AS `to`,
                type(rel) AS label,
-               coalesce(rel.fact, rel.evidence, rel.description, "") AS fact
+               type(rel) AS rel_type,
+               coalesce(rel.fact, rel.evidence, rel.description, "") AS fact,
+               properties(rel) AS props,
+               coalesce(rel.episode_support_ids, rel.support_episode_ids, rel.support_ids, []) AS support_episode_ids
         """
 
         try:
