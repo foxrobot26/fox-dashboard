@@ -99,8 +99,21 @@
     const network = new vis.Network(document.getElementById('graphCanvas'), visData, {
       autoResize: true,
       interaction: { hover: true },
-      nodes: { shape: 'dot', size: 14, font: { color: '#e6e6e6' } },
-      edges: { color: '#6f6f6f', arrows: { to: { enabled: false } }, smooth: true, font: { color: '#cfcfcf', size: 10 } },
+      nodes: {
+        shape: 'dot',
+        size: 14,
+        font: { color: '#e6e6e6' },
+        color: {
+          highlight: { border: '#ff3b30', background: '#ff3b30' },
+          hover: { border: '#ff3b30', background: '#ff3b30' }
+        }
+      },
+      edges: {
+        color: { color: '#6f6f6f', highlight: '#ff3b30', hover: '#ff3b30' },
+        arrows: { to: { enabled: false } },
+        smooth: true,
+        font: { color: '#cfcfcf', size: 10 }
+      },
       physics: { stabilization: true, barnesHut: { gravitationalConstant: -4500 } }
     });
 
