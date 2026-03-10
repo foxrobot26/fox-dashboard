@@ -1,0 +1,85 @@
+<!doctype html>
+<html lang="en">
+<head>
+  <meta charset="UTF-8" />
+  <meta name="viewport" content="width=device-width, initial-scale=1.0" />
+  <title>Reminders · Video Curation Dashboard</title>
+  <link rel="stylesheet" href="{{ url_for('static', filename='style.css') }}" />
+</head>
+<body>
+  <header class="topbar">
+    <div>
+      <h1>Reminders</h1>
+      <p class="muted">Tasks pulled from your reminder source.</p>
+      <p class="muted"><a href="{{ url_for('dashboard') }}">← Back to Review Dashboard</a></p>
+    </div>
+    <div class="top-actions">
+      <a href="{{ url_for('dashboard_graph') }}" class="secondary" style="display:inline-flex;align-items:center;text-decoration:none;padding:8px 12px;">Graph</a>
+      <a href="{{ url_for('dashboard_multimodal') }}" class="secondary" style="display:inline-flex;align-items:center;text-decoration:none;padding:8px 12px;">Multimodal RAG Lab</a>
+      <form method="post" action="{{ url_for('logout') }}">
+        <button type="submit" class="secondary">Log out</button>
+      </form>
+    </div>
+  </header>
+
+  <main class="tabs-wrap">
+    <section class="card">
+      <h2>Reminder Queue</h2>
+      <p class="muted" id="reminders-status">Loading reminders...</p>
+      <div id="reminders-body"></div>
+    </section>
+  </main>
+
+  <script>
+    function escapeHtml(value) {
+      return String(value || '')
+        .replaceAll('&', '&amp;')
+        .replaceAll('<', '&lt;')
+        .replaceAll('>', '&gt;')
+        .replaceAll('"', '&quot;')
+        .replaceAll("'", '&#39;');
+    }
+
+    function renderReminderCards(items) {
+      if (!items.length) {
+        return '<p class="muted">No reminders yet.</p>';
+      }
+      return `<div class="grid">${items.map(item => `
+        <article class="card compact">
+          <h2>${escapeHtml(item.title || item.text || 'Untitled reminder')}</h2>
+          <p class="muted">Due: ${escapeHtml(item.when || 'n/a')}</p>
+          <p class="muted">Status: ${escapeHtml(item.status || 'unknown')}</p>
+          <p class="muted">Source: ${escapeHtml(item.source || 'unknown')}</p>
+        </article>
+      `).join('')}</div>`;
+    }
+
+    async function loadReminders() {
+      const statusEl = document.getElementById('reminders-status');
+      const bodyEl = document.getElementById('reminders-body');
+      statusEl.textContent = 'Loading reminders...';
+      statusEl.className = 'muted';
+      bodyEl.innerHTML = '';
+
+      try {
+        const res = await fetch('/api/reminders');
+        const data = await res.json();
+        if (!res.ok || !data.ok) {
+          throw new Error(data.error || 'Failed to load reminders');
+        }
+
+        const counts = data.counts || {};
+        statusEl.textContent = `Open ${counts.pending || 0} · Completed ${counts.completed || 0} · Unknown ${counts.unknown || 0} · Source ${data.source || 'n/a'}`;
+        bodyEl.innerHTML = renderReminderCards(data.items || []);
+      } catch (err) {
+        const detail = err?.message || String(err);
+        statusEl.textContent = `Load failed: ${detail}`;
+        statusEl.className = 'status err';
+        bodyEl.innerHTML = '<p class="muted">Unable to load reminders.</p>';
+      }
+    }
+
+    loadReminders();
+  </script>
+</body>
+</html>

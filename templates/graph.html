@@ -38,6 +38,8 @@
       </div>
     </div>
     <div class="top-actions">
+      <a href="{{ url_for('dashboard_multimodal') }}" class="secondary" style="display:inline-flex;align-items:center;text-decoration:none;padding:8px 12px;">Multimodal RAG Lab</a>
+      <a href="{{ url_for('dashboard_reminders') }}" class="secondary" style="display:inline-flex;align-items:center;text-decoration:none;padding:8px 12px;">Reminders</a>
       <form method="post" action="{{ url_for('logout') }}">
         <button type="submit" class="secondary">Log out</button>
       </form>

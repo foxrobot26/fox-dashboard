@@ -14,6 +14,8 @@
       <p class="muted"><a href="{{ url_for('dashboard') }}">← Back to Review Dashboard</a></p>
     </div>
     <div class="top-actions">
+      <a href="{{ url_for('dashboard_graph') }}" class="secondary" style="display:inline-flex;align-items:center;text-decoration:none;padding:8px 12px;">Graph</a>
+      <a href="{{ url_for('dashboard_reminders') }}" class="secondary" style="display:inline-flex;align-items:center;text-decoration:none;padding:8px 12px;">Reminders</a>
       <form method="post" action="{{ url_for('logout') }}">
         <button type="submit" class="secondary">Log out</button>
       </form>

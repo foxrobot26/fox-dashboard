@@ -15,6 +15,7 @@
     <div class="top-actions">
       <a href="{{ url_for('dashboard_graph') }}" class="secondary" style="display:inline-flex;align-items:center;text-decoration:none;padding:8px 12px;">Graph</a>
       <a href="{{ url_for('dashboard_multimodal') }}" class="secondary" style="display:inline-flex;align-items:center;text-decoration:none;padding:8px 12px;">Multimodal RAG Lab</a>
+      <a href="{{ url_for('dashboard_reminders') }}" class="secondary" style="display:inline-flex;align-items:center;text-decoration:none;padding:8px 12px;">Reminders</a>
       <div class="view-toggle" role="group" aria-label="View mode">
         <button type="button" class="secondary view-btn is-active" id="view-card" data-view="card">Card</button>
         <button type="button" class="secondary view-btn" id="view-list" data-view="list">List</button>
@@ -41,7 +42,6 @@
         <button class="tab is-active" data-tab="pending">Pending ({{ data.counts.pending }})</button>
         <button class="tab" data-tab="approved">Approved ({{ data.counts.approved }})</button>
         <button class="tab" data-tab="rejected">Rejected ({{ data.counts.rejected }})</button>
-        <button class="tab" data-tab="reminders">Reminders</button>
       </div>
 
       <section class="tab-panel is-active" id="panel-pending">
@@ -126,15 +126,6 @@
         </div>
       </section>
 
-      <section class="tab-panel" id="panel-reminders">
-        <div class="grid">
-          <article class="card">
-            <h2>Reminders</h2>
-            <p class="muted" id="reminders-status">Loading reminders...</p>
-            <div id="reminders-body"></div>
-          </article>
-        </div>
-      </section>
     </main>
   {% endif %}
 
@@ -167,66 +158,9 @@
       }
     }
 
-    let remindersLoaded = false;
-
-    function escapeHtml(value) {
-      return String(value || '')
-        .replaceAll('&', '&amp;')
-        .replaceAll('<', '&lt;')
-        .replaceAll('>', '&gt;')
-        .replaceAll('"', '&quot;')
-        .replaceAll("'", '&#39;');
-    }
-
-    function renderReminderCards(items) {
-      if (!items.length) {
-        return '<p class="muted">No reminders yet.</p>';
-      }
-      return `<div class="grid">${items.map(item => `
-        <article class="card compact">
-          <h2>${escapeHtml(item.title || item.text || 'Untitled reminder')}</h2>
-          <p class="muted">When: ${escapeHtml(item.when || 'n/a')}</p>
-          <p class="muted">Status: ${escapeHtml(item.status || 'unknown')}</p>
-          <p class="muted">Source: ${escapeHtml(item.source || 'unknown')}</p>
-        </article>
-      `).join('')}</div>`;
-    }
-
-    async function loadReminders(force = false) {
-      if (remindersLoaded && !force) return;
-      const statusEl = document.getElementById('reminders-status');
-      const bodyEl = document.getElementById('reminders-body');
-      if (!statusEl || !bodyEl) return;
-
-      statusEl.textContent = 'Loading reminders...';
-      statusEl.className = 'muted';
-      bodyEl.innerHTML = '';
-
-      try {
-        const res = await fetch('/api/reminders');
-        const data = await res.json();
-        if (!res.ok || !data.ok) {
-          throw new Error(data.error || 'Failed to load reminders');
-        }
-
-        const counts = data.counts || {};
-        statusEl.textContent = `Open ${counts.pending || 0} · Completed ${counts.completed || 0} · Unknown ${counts.unknown || 0} · Source ${data.source || 'n/a'}`;
-        bodyEl.innerHTML = renderReminderCards(data.items || []);
-        remindersLoaded = true;
-      } catch (err) {
-        const detail = err?.message || String(err);
-        statusEl.textContent = `Load failed: ${detail}`;
-        statusEl.className = 'status err';
-        bodyEl.innerHTML = '<p class="muted">Unable to load reminders.</p>';
-      }
-    }
-
     document.querySelectorAll('.tab').forEach(btn => {
       btn.addEventListener('click', () => {
         activateTab(btn.dataset.tab, true);
-        if (btn.dataset.tab === 'reminders') {
-          loadReminders(false);
-        }
       });
     });
 
@@ -236,7 +170,6 @@
       const validTabs = new Set(Array.from(document.querySelectorAll('.tab')).map(btn => btn.dataset.tab));
       if (saved && validTabs.has(saved)) {
         activateTab(saved, false);
-        if (saved === 'reminders') loadReminders(false);
       }
     })();
 

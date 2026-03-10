@@ -477,6 +477,12 @@ def create_app() -> Flask:
         status = service.status()
         return render_template("multimodal.html", status=status)
 
+    @app.route("/reminders")
+    def dashboard_reminders():
+        if not _require_login():
+            return redirect(url_for("login"))
+        return render_template("reminders.html")
+
     @app.route("/api/multimodal/status", methods=["GET"])
     def api_multimodal_status():
         if not _require_login():
