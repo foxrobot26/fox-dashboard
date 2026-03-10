@@ -534,6 +534,37 @@ def create_app() -> Flask:
             return jsonify({"ok": False, "error": "Unauthorized"}), 401
         return jsonify(load_review_buckets(limit=200))
 
+    @app.route("/api/recs-graph", methods=["GET"])
+    def api_recs_graph():
+        if not _require_login():
+            return jsonify({"ok": False, "error": "Unauthorized"}), 401
+
+        recs = load_review_buckets(limit=200)
+        graph_payload: dict[str, Any] = {"ok": True, "nodes": [], "error": ""}
+        graph_limit = _clamp_int(request.args.get("graph_limit"), default=12, min_value=1, max_value=50)
+
+        cypher = """
+        MATCH (n)
+        WITH n, COUNT { (n)--() } AS degree
+        WHERE degree > 0
+        RETURN coalesce(nullIf(trim(n.name), ''), toString(id(n))) AS id,
+               coalesce(nullIf(trim(n.name), ''), toString(id(n))) AS label,
+               coalesce(head(labels(n)), "Entity") AS `group`,
+               degree,
+               labels(n) AS labels,
+               any(lbl IN labels(n) WHERE lbl IN ["Episodic", "Episode"]) AS is_episodic
+        ORDER BY degree DESC, label ASC
+        LIMIT $limit
+        """
+
+        try:
+            graph_rows = _neo4j_query(cypher, {"limit": graph_limit})
+            graph_payload["nodes"] = graph_rows
+        except Exception as exc:
+            graph_payload = {"ok": False, "nodes": [], "error": f"Graph unavailable: {exc}"}
+
+        return jsonify({"ok": bool(recs.get("ok", False)), "recs": recs, "graph": graph_payload})
+
     @app.route("/api/recommendations/<item_id>/<action>", methods=["POST"])
     def take_action(item_id: str, action: str):
         if not _require_login():

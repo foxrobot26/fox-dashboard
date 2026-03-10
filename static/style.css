@@ -163,3 +163,22 @@ button:disabled {
 .notes-list li {
   margin-bottom: 0.45rem;
 }
+
+.combined-layout {
+  display: grid;
+  grid-template-columns: repeat(auto-fit, minmax(320px, 1fr));
+  gap: 1rem;
+}
+
+.combined-panel h2 {
+  margin-top: 0;
+}
+
+.combined-list {
+  margin: 0.6rem 0 0;
+  padding-left: 1rem;
+}
+
+.combined-list li {
+  margin-bottom: 0.45rem;
+}

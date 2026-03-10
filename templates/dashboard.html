@@ -40,6 +40,7 @@
         <button class="tab is-active" data-tab="pending">Pending ({{ data.counts.pending }})</button>
         <button class="tab" data-tab="approved">Approved ({{ data.counts.approved }})</button>
         <button class="tab" data-tab="rejected">Rejected ({{ data.counts.rejected }})</button>
+        <button class="tab" data-tab="recs-graph">Recs + Graph</button>
       </div>
 
       <section class="tab-panel is-active" id="panel-pending">
@@ -123,6 +124,21 @@
           {% endif %}
         </div>
       </section>
+
+      <section class="tab-panel" id="panel-recs-graph">
+        <div class="combined-layout">
+          <article class="card combined-panel">
+            <h2>Video recommendations snapshot</h2>
+            <p class="muted" id="combined-recs-status">Loading recommendations...</p>
+            <div id="combined-recs-body"></div>
+          </article>
+          <article class="card combined-panel">
+            <h2>Graph context snapshot</h2>
+            <p class="muted" id="combined-graph-status">Loading graph...</p>
+            <div id="combined-graph-body"></div>
+          </article>
+        </div>
+      </section>
     </main>
   {% endif %}
 
@@ -155,8 +171,80 @@
       }
     }
 
+    let combinedLoaded = false;
+
+    async function loadCombinedView(force = false) {
+      if (combinedLoaded && !force) return;
+      const recsStatus = document.getElementById('combined-recs-status');
+      const graphStatus = document.getElementById('combined-graph-status');
+      const recsBody = document.getElementById('combined-recs-body');
+      const graphBody = document.getElementById('combined-graph-body');
+      if (!recsStatus || !graphStatus || !recsBody || !graphBody) return;
+
+      recsStatus.textContent = 'Loading recommendations...';
+      graphStatus.textContent = 'Loading graph...';
+      recsBody.innerHTML = '';
+      graphBody.innerHTML = '';
+
+      try {
+        const res = await fetch('/api/recs-graph');
+        const data = await res.json();
+        if (!res.ok || !data.ok) {
+          throw new Error(data.error || 'Failed to load combined data');
+        }
+
+        const recs = data.recs || {};
+        const counts = recs.counts || {};
+        recsStatus.textContent = `Pending ${counts.pending || 0} · Approved ${counts.approved || 0} · Rejected ${counts.rejected || 0}`;
+        const pending = (recs.pending || []).slice(0, 8);
+        if (!pending.length) {
+          recsBody.innerHTML = '<p class="muted">No pending recommendations.</p>';
+        } else {
+          recsBody.innerHTML = `<ul class="combined-list">${pending.map(item => `
+            <li>
+              <a href="${item.url || '#'}" target="_blank" rel="noreferrer">${item.title || item.video_id || 'Untitled'}</a>
+              <span class="muted">${item.uploader ? ` · ${item.uploader}` : ''}</span>
+            </li>
+          `).join('')}</ul>`;
+        }
+
+        const graph = data.graph || {};
+        if (!graph.ok) {
+          graphStatus.textContent = graph.error || 'Graph unavailable.';
+          graphStatus.className = 'status err';
+          graphBody.innerHTML = '<p class="muted">Showing safe empty state.</p>';
+        } else {
+          const nodes = (graph.nodes || []).slice(0, 10).filter(n => !n.is_episodic);
+          graphStatus.textContent = `Top entities loaded: ${nodes.length}`;
+          graphStatus.className = 'muted';
+          if (!nodes.length) {
+            graphBody.innerHTML = '<p class="muted">No graph entities available.</p>';
+          } else {
+            graphBody.innerHTML = `<ul class="combined-list">${nodes.map(node => `
+              <li><strong>${node.label || node.id}</strong> <span class="muted">(${node.group || 'Entity'} · degree ${node.degree || 0})</span></li>
+            `).join('')}</ul>`;
+          }
+        }
+
+        combinedLoaded = true;
+      } catch (err) {
+        const detail = err?.message || String(err);
+        recsStatus.textContent = `Load failed: ${detail}`;
+        recsStatus.className = 'status err';
+        graphStatus.textContent = 'Graph unavailable.';
+        graphStatus.className = 'status err';
+        recsBody.innerHTML = '<p class="muted">Unable to load recommendations.</p>';
+        graphBody.innerHTML = '<p class="muted">Showing safe empty state.</p>';
+      }
+    }
+
     document.querySelectorAll('.tab').forEach(btn => {
-      btn.addEventListener('click', () => activateTab(btn.dataset.tab, true));
+      btn.addEventListener('click', () => {
+        activateTab(btn.dataset.tab, true);
+        if (btn.dataset.tab === 'recs-graph') {
+          loadCombinedView(false);
+        }
+      });
     });
 
     (function restoreTab() {
@@ -165,6 +253,7 @@
       const validTabs = new Set(Array.from(document.querySelectorAll('.tab')).map(btn => btn.dataset.tab));
       if (saved && validTabs.has(saved)) {
         activateTab(saved, false);
+        if (saved === 'recs-graph') loadCombinedView(false);
       }
     })();
 
