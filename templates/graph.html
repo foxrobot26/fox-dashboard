@@ -140,6 +140,7 @@
         label: n.label || n.id,
         group: n.group || 'Entity',
         value: Math.max(1, Number(n.degree || 1)),
+        shape: n.is_episodic ? 'square' : 'dot',
         title: `${n.label || n.id} (${n.degree || 0})`
       }));
 
