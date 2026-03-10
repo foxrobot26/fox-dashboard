@@ -490,7 +490,7 @@ def create_app() -> Flask:
         WITH DISTINCT n
         OPTIONAL MATCH (n)--(adj)
         WITH n, collect(DISTINCT adj) AS adjacent
-        RETURN coalesce(nullIf(trim(n.name), ''), toString(id(n))) AS id,
+        RETURN toString(id(n)) AS id,
                coalesce(nullIf(trim(n.name), ''), toString(id(n))) AS label,
                coalesce(head(labels(n)), "Entity") AS `group`,
                COUNT {{ (n)--() }} AS degree,
@@ -507,8 +507,8 @@ def create_app() -> Flask:
         UNWIND relationships(p) AS rel
         WITH DISTINCT rel
         LIMIT $edge_limit
-        RETURN coalesce(nullIf(trim(startNode(rel).name), ''), toString(id(startNode(rel)))) AS `from`,
-               coalesce(nullIf(trim(endNode(rel).name), ''), toString(id(endNode(rel)))) AS `to`,
+        RETURN toString(id(startNode(rel))) AS `from`,
+               toString(id(endNode(rel))) AS `to`,
                type(rel) AS label,
                type(rel) AS rel_type,
                coalesce(rel.fact, rel.evidence, rel.description, "") AS fact,
