@@ -12,10 +12,17 @@ Simple Flask dashboard to review daily video recommendations and send approve/re
 - Actions trigger KB backend directly:
   - `approve-video ... --by <actor>`
   - `reject-video ... --by <actor>`
+- New **Multimodal RAG Lab** page (`/dashboard/multimodal`) with:
+  - text query input
+  - optional image upload query
+  - top-k selector
+  - result cards with score, type, preview, and source metadata
+  - clear status badges for API key mode and dataset readiness
 
 ## Requirements
 - Python 3.10+
 - `DASHBOARD_PASSWORD` environment variable must be set, app refuses startup otherwise
+- Python deps in `requirements.txt` (now includes `numpy` and optional live-mode Gemini dependency `google-genai`)
 
 ## Setup
 ```bash
@@ -31,6 +38,13 @@ Set env vars (or load from `.env` using your preferred method):
 export DASHBOARD_PASSWORD='your-strong-password'
 export PORT=8080
 export FLASK_SECRET_KEY='random-long-secret'
+
+# Optional: Multimodal RAG Lab live mode (image query + Gemini embeddings)
+export GEMINI_API_KEY='your-gemini-key'
+export GEMINI_EMBEDDING_MODEL='gemini-embedding-2-preview'
+
+# Optional: point the lab to a specific dataset/index root
+export MULTIMODAL_RAG_BASE_DIR='/Users/fox/.openclaw/workspace/gemini-multimodal-rag-lab'
 ```
 
 ## Run
@@ -41,6 +55,16 @@ python3 app.py
 ```
 
 App listens on `127.0.0.1:${PORT:-8080}` behind Nginx.
+
+## Multimodal RAG Lab data setup
+The dashboard expects data in:
+- `${MULTIMODAL_RAG_BASE_DIR}/data/text/*.txt`
+- `${MULTIMODAL_RAG_BASE_DIR}/data/images/*` (png/jpg/jpeg)
+
+Default base dir:
+- `/Users/fox/.openclaw/workspace/gemini-multimodal-rag-lab`
+
+If no data files are present, the page stays in a friendly "index not ready" state and retrieval returns a clear setup hint.
 
 ## Tailscale access note
 Because the server binds to `0.0.0.0`, it can be reached over your Tailscale IP when running on a Tailscale-connected host. Example:

@@ -8,7 +8,9 @@ from pathlib import Path
 from typing import Any
 from urllib import error as urlerror, parse as urlparse, request as urlrequest
 
-from flask import Flask, Response, jsonify, redirect, render_template, request, session, url_for
+from flask import Flask, Response, jsonify, redirect, render_template, request, send_file, session, url_for
+
+from multimodal_rag import MIME_MAP, MultimodalRAGService, retrieve_by_vector, retrieve_text
 
 WORKSPACE = Path("/Users/fox/.openclaw/workspace")
 FILE_APPROVAL_FLOW = WORKSPACE / "scripts" / "recs" / "file_approval_flow.py"
@@ -17,11 +19,16 @@ APPROVED_DIR = WORKSPACE / "content" / "approved" / "transcripts"
 REJECTED_DIR = WORKSPACE / "content" / "staging" / "rejected"
 DECISIONS_FILE = WORKSPACE / "content" / "staging" / "decisions" / "video-decisions.jsonl"
 VIDEO_NOTES_FILE = WORKSPACE / "content" / "staging" / "decisions" / "video-notes.jsonl"
+REMINDER_TASKS_FILE = WORKSPACE / "memory" / "state" / "reminder-tasks.json"
+REMINDERS_CONFIG_FILE = WORKSPACE / "config" / "reminders.json"
 ACTION_ACTOR = os.getenv("DASHBOARD_ACTOR", "dashboard")
 NEO4J_BROWSER_BASE = os.getenv("NEO4J_BROWSER_BASE", "http://127.0.0.1:7474")
 NEO4J_HTTP_ENDPOINT = os.getenv("NEO4J_HTTP_ENDPOINT", "http://127.0.0.1:7474/db/neo4j/tx/commit")
 NEO4J_USER = os.getenv("NEO4J_USER", "neo4j")
 NEO4J_PASSWORD = os.getenv("NEO4J_PASSWORD", "")
+MULTIMODAL_RAG_BASE_DIR = Path(
+    os.getenv("MULTIMODAL_RAG_BASE_DIR", "/Users/fox/.openclaw/workspace/gemini-multimodal-rag-lab")
+)
 
 
 def _clamp_int(value: Any, default: int, min_value: int, max_value: int) -> int:
@@ -81,6 +88,7 @@ def create_app() -> Flask:
     app = Flask(__name__)
     app.secret_key = os.getenv("FLASK_SECRET_KEY", "change-me-in-production")
     app.config["DASHBOARD_PASSWORD"] = password
+    app.config["MULTIMODAL_RAG_SERVICE"] = MultimodalRAGService(MULTIMODAL_RAG_BASE_DIR)
 
     def _require_login() -> bool:
         return session.get("authenticated") is True
@@ -340,6 +348,90 @@ def create_app() -> Flask:
             "rejected": rejected,
         }
 
+    def _load_reminders_config() -> dict[str, Any]:
+        if not REMINDERS_CONFIG_FILE.exists():
+            return {}
+        try:
+            data = json.loads(REMINDERS_CONFIG_FILE.read_text(errors="ignore") or "{}")
+            return data if isinstance(data, dict) else {}
+        except Exception:
+            return {}
+
+    def load_reminders(limit: int = 200) -> dict[str, Any]:
+        config = _load_reminders_config()
+        timezone = str(config.get("timezone") or "America/New_York")
+        source_name = "memory/state/reminder-tasks.json"
+
+        if not REMINDER_TASKS_FILE.exists():
+            return {
+                "ok": True,
+                "timezone": timezone,
+                "source": source_name,
+                "items": [],
+                "counts": {"total": 0, "pending": 0, "completed": 0, "unknown": 0},
+            }
+
+        try:
+            raw = json.loads(REMINDER_TASKS_FILE.read_text(errors="ignore") or "[]")
+            if not isinstance(raw, list):
+                raw = []
+        except Exception as exc:
+            return {
+                "ok": False,
+                "timezone": timezone,
+                "source": source_name,
+                "items": [],
+                "counts": {"total": 0, "pending": 0, "completed": 0, "unknown": 0},
+                "error": f"Failed to load reminders: {exc}",
+            }
+
+        items: list[dict[str, Any]] = []
+        for row in raw[:limit]:
+            if not isinstance(row, dict):
+                continue
+            status_raw = str(row.get("status") or "").strip().lower()
+            if status_raw in {"open", "pending", "todo", "active"}:
+                status = "pending"
+            elif status_raw in {"done", "completed", "closed"}:
+                status = "completed"
+            else:
+                status = "unknown"
+
+            reminder_id = row.get("id")
+            text = str(row.get("text") or row.get("title") or "").strip()
+            due = str(row.get("due") or row.get("when") or "").strip()
+            source = str(row.get("source") or source_name)
+
+            items.append(
+                {
+                    "id": str(reminder_id) if reminder_id is not None else "",
+                    "title": text,
+                    "text": text,
+                    "when": due,
+                    "status": status,
+                    "source": source,
+                    "priority": str(row.get("priority") or ""),
+                    "updated_at": str(row.get("updatedAt") or ""),
+                    "created_at": str(row.get("createdAt") or ""),
+                }
+            )
+
+        items.sort(key=lambda item: ((item.get("status") != "pending"), item.get("when") or "9999-99-99", item.get("id") or ""))
+        counts = {
+            "total": len(items),
+            "pending": sum(1 for i in items if i.get("status") == "pending"),
+            "completed": sum(1 for i in items if i.get("status") == "completed"),
+            "unknown": sum(1 for i in items if i.get("status") == "unknown"),
+        }
+
+        return {
+            "ok": True,
+            "timezone": timezone,
+            "source": source_name,
+            "items": items,
+            "counts": counts,
+        }
+
     @app.route("/")
     def home():
         if _require_login():
@@ -374,6 +466,108 @@ def create_app() -> Flask:
         if not _require_login():
             return redirect(url_for("login"))
         return render_template("graph.html")
+
+    @app.route("/dashboard/multimodal")
+    def dashboard_multimodal():
+        if not _require_login():
+            return redirect(url_for("login"))
+        service: MultimodalRAGService = app.config["MULTIMODAL_RAG_SERVICE"]
+        status = service.status()
+        return render_template("multimodal.html", status=status)
+
+    @app.route("/api/multimodal/status", methods=["GET"])
+    def api_multimodal_status():
+        if not _require_login():
+            return jsonify({"ok": False, "error": "Unauthorized"}), 401
+        service: MultimodalRAGService = app.config["MULTIMODAL_RAG_SERVICE"]
+        return jsonify({"ok": True, "status": service.status()})
+
+    @app.route("/api/multimodal/retrieve", methods=["POST"])
+    def api_multimodal_retrieve():
+        if not _require_login():
+            return jsonify({"ok": False, "error": "Unauthorized"}), 401
+
+        service: MultimodalRAGService = app.config["MULTIMODAL_RAG_SERVICE"]
+        top_k = _clamp_int(request.form.get("top_k"), default=5, min_value=1, max_value=10)
+        query_text = str(request.form.get("query") or "").strip()
+        uploaded = request.files.get("query_image")
+
+        if not query_text and (uploaded is None or not uploaded.filename):
+            return jsonify({"ok": False, "error": "Enter a text query or upload an image first."}), 400
+
+        if uploaded is not None and uploaded.filename:
+            suffix = Path(uploaded.filename).suffix.lower()
+            if suffix not in MIME_MAP:
+                return jsonify({"ok": False, "error": "Unsupported image type. Use PNG or JPEG."}), 400
+            if service.offline_mode:
+                return jsonify({"ok": False, "error": "Image query is only available in live mode. Add GEMINI_API_KEY to enable it."}), 400
+
+        try:
+            embedder, records, index = service.load_runtime()
+            mode = "text"
+            if uploaded is not None and uploaded.filename:
+                suffix = Path(uploaded.filename).suffix.lower()
+                mime_type = MIME_MAP.get(suffix, "image/png")
+                query_vec = embedder.embed_query_image(uploaded.read(), mime_type=mime_type)
+                hits = retrieve_by_vector(query_vec, records, index, k=top_k)
+                mode = "image"
+            else:
+                hits = retrieve_text(query_text, records, index, embedder, k=top_k)
+
+            results: list[dict[str, Any]] = []
+            for rank, (record, score) in enumerate(hits, start=1):
+                rec_path = Path(record.path)
+                preview = record.content[:260] if record.kind == "text" else record.content
+                results.append(
+                    {
+                        "rank": rank,
+                        "record_id": record.record_id,
+                        "kind": record.kind,
+                        "score": round(float(score), 4),
+                        "preview": preview,
+                        "source": {
+                            "path": record.path,
+                            "filename": rec_path.name,
+                            "exists": rec_path.exists(),
+                        },
+                        "asset_url": url_for("api_multimodal_asset", record_id=record.record_id) if record.kind == "image" else "",
+                    }
+                )
+
+            return jsonify({
+                "ok": True,
+                "mode": mode,
+                "offline_mode": service.offline_mode,
+                "top_k": top_k,
+                "results": results,
+            })
+        except Exception as exc:
+            return jsonify({
+                "ok": False,
+                "error": f"Retrieval failed: {exc}",
+                "hint": "Confirm data files exist under data/text and data/images, then retry.",
+            }), 500
+
+    @app.route("/api/multimodal/asset/<path:record_id>", methods=["GET"])
+    def api_multimodal_asset(record_id: str):
+        if not _require_login():
+            return jsonify({"ok": False, "error": "Unauthorized"}), 401
+
+        service: MultimodalRAGService = app.config["MULTIMODAL_RAG_SERVICE"]
+        try:
+            _embedder, records, _index = service.load_runtime()
+        except Exception as exc:
+            return jsonify({"ok": False, "error": f"Asset unavailable: {exc}"}), 404
+
+        match = next((r for r in records if r.record_id == record_id and r.kind == "image"), None)
+        if not match:
+            return jsonify({"ok": False, "error": "Image record not found"}), 404
+
+        asset_path = Path(match.path)
+        if not asset_path.exists():
+            return jsonify({"ok": False, "error": "Image file missing on disk"}), 404
+
+        return send_file(asset_path, mimetype=match.mime_type or "image/png")
 
     @app.route("/dashboard/neo4j/", defaults={"path": ""}, methods=["GET", "POST", "PUT", "PATCH", "DELETE", "OPTIONS"])
     @app.route("/dashboard/neo4j/<path:path>", methods=["GET", "POST", "PUT", "PATCH", "DELETE", "OPTIONS"])
@@ -534,36 +728,16 @@ def create_app() -> Flask:
             return jsonify({"ok": False, "error": "Unauthorized"}), 401
         return jsonify(load_review_buckets(limit=200))
 
-    @app.route("/api/recs-graph", methods=["GET"])
-    def api_recs_graph():
+    @app.route("/api/reminders", methods=["GET"])
+    def api_reminders():
         if not _require_login():
             return jsonify({"ok": False, "error": "Unauthorized"}), 401
 
-        recs = load_review_buckets(limit=200)
-        graph_payload: dict[str, Any] = {"ok": True, "nodes": [], "error": ""}
-        graph_limit = _clamp_int(request.args.get("graph_limit"), default=12, min_value=1, max_value=50)
-
-        cypher = """
-        MATCH (n)
-        WITH n, COUNT { (n)--() } AS degree
-        WHERE degree > 0
-        RETURN coalesce(nullIf(trim(n.name), ''), toString(id(n))) AS id,
-               coalesce(nullIf(trim(n.name), ''), toString(id(n))) AS label,
-               coalesce(head(labels(n)), "Entity") AS `group`,
-               degree,
-               labels(n) AS labels,
-               any(lbl IN labels(n) WHERE lbl IN ["Episodic", "Episode"]) AS is_episodic
-        ORDER BY degree DESC, label ASC
-        LIMIT $limit
-        """
-
-        try:
-            graph_rows = _neo4j_query(cypher, {"limit": graph_limit})
-            graph_payload["nodes"] = graph_rows
-        except Exception as exc:
-            graph_payload = {"ok": False, "nodes": [], "error": f"Graph unavailable: {exc}"}
-
-        return jsonify({"ok": bool(recs.get("ok", False)), "recs": recs, "graph": graph_payload})
+        limit = _clamp_int(request.args.get("limit"), default=200, min_value=1, max_value=1000)
+        payload = load_reminders(limit=limit)
+        if not payload.get("ok"):
+            return jsonify(payload), 500
+        return jsonify(payload)
 
     @app.route("/api/recommendations/<item_id>/<action>", methods=["POST"])
     def take_action(item_id: str, action: str):

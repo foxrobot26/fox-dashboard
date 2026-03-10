@@ -93,7 +93,7 @@ body {
 .auth-card { width: min(440px, 100%); }
 .auth-form { display: grid; gap: 0.7rem; }
 
-input {
+input, select {
   padding: 0.65rem;
   border-radius: 8px;
   border: 1px solid #3c4252;
@@ -181,4 +181,57 @@ button:disabled {
 
 .combined-list li {
   margin-bottom: 0.45rem;
+}
+
+.mm-status-grid {
+  display: grid;
+  grid-template-columns: 2fr 1fr;
+  gap: 1rem;
+}
+
+.mm-form {
+  display: grid;
+  gap: 0.8rem;
+}
+
+.mm-form-row {
+  display: grid;
+  grid-template-columns: 2fr 1fr;
+  gap: 0.8rem;
+}
+
+.mm-results .card h3 {
+  margin-top: 0;
+  margin-bottom: 0.35rem;
+}
+
+.mm-thumb {
+  width: 100%;
+  max-height: 220px;
+  object-fit: contain;
+  border: 1px solid #2c313d;
+  border-radius: 8px;
+  margin: 0.35rem 0;
+  background: #0f1117;
+}
+
+.mm-text-preview {
+  white-space: pre-wrap;
+  border: 1px solid #2c313d;
+  border-radius: 8px;
+  padding: 0.5rem;
+  background: #0f1117;
+  color: #d4d8e3;
+  min-height: 70px;
+}
+
+.card.subtle {
+  background: #141924;
+}
+
+@media (max-width: 900px) {
+  .mm-status-grid,
+  .mm-form-row {
+    grid-template-columns: 1fr;
+  }
 }

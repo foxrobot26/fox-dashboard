@@ -1,0 +1,147 @@
+<!doctype html>
+<html lang="en">
+<head>
+  <meta charset="UTF-8" />
+  <meta name="viewport" content="width=device-width, initial-scale=1.0" />
+  <title>Multimodal RAG Lab · Video Curation Dashboard</title>
+  <link rel="stylesheet" href="{{ url_for('static', filename='style.css') }}" />
+</head>
+<body>
+  <header class="topbar">
+    <div>
+      <h1>Multimodal RAG Lab</h1>
+      <p class="muted">Search across your text and image collection with a simple query.</p>
+      <p class="muted"><a href="{{ url_for('dashboard') }}">← Back to Review Dashboard</a></p>
+    </div>
+    <div class="top-actions">
+      <form method="post" action="{{ url_for('logout') }}">
+        <button type="submit" class="secondary">Log out</button>
+      </form>
+    </div>
+  </header>
+
+  <main class="tabs-wrap">
+    <section class="card mm-status-grid">
+      <div>
+        <h2>System status</h2>
+        <p id="api-status" class="status {{ 'ok' if status.api_key_present else 'err' }}">
+          API key: {{ 'Connected (live mode)' if status.api_key_present else 'Missing (offline mode)' }}
+        </p>
+        <p id="index-status" class="status {{ 'ok' if status.index_ready else 'err' }}">
+          Data index: {{ 'Ready' if status.index_ready else 'Not ready yet' }}
+        </p>
+        <p class="muted">Text files: <strong>{{ status.text_count }}</strong> · Image files: <strong>{{ status.image_count }}</strong></p>
+      </div>
+      <div class="card subtle">
+        <h3>Offline mode note</h3>
+        <p class="muted">If the Gemini API key is missing, text search still works. Image upload queries are disabled until the key is added.</p>
+        <p class="muted">Data folder: <code>{{ status.base_dir }}/data</code></p>
+      </div>
+    </section>
+
+    <section class="card">
+      <h2>Run retrieval</h2>
+      <form id="retrieve-form" class="mm-form" enctype="multipart/form-data">
+        <label for="query">Text query</label>
+        <textarea id="query" name="query" class="note-input" placeholder="Example: show image examples related to cloud patterns"></textarea>
+
+        <div class="mm-form-row">
+          <div>
+            <label for="query_image">Optional image query (PNG/JPG)</label>
+            <input id="query_image" name="query_image" type="file" accept="image/png,image/jpeg" />
+          </div>
+          <div>
+            <label for="top_k">Top-k results</label>
+            <select id="top_k" name="top_k">
+              {% for k in range(1, 11) %}
+                <option value="{{ k }}" {{ 'selected' if k == 5 else '' }}>{{ k }}</option>
+              {% endfor %}
+            </select>
+          </div>
+        </div>
+
+        <div class="actions">
+          <button type="submit">Run retrieval</button>
+        </div>
+        <p id="retrieve-status" class="status"></p>
+      </form>
+    </section>
+
+    <section class="card">
+      <h2>Results</h2>
+      <div id="results-empty" class="muted">No results yet. Run a query to see ranked matches.</div>
+      <div id="results-grid" class="grid mm-results"></div>
+    </section>
+  </main>
+
+  <script>
+    const form = document.getElementById('retrieve-form');
+    const resultsGrid = document.getElementById('results-grid');
+    const resultsEmpty = document.getElementById('results-empty');
+    const statusEl = document.getElementById('retrieve-status');
+
+    function escapeHtml(text) {
+      return String(text || '').replaceAll('&', '&amp;').replaceAll('<', '&lt;').replaceAll('>', '&gt;');
+    }
+
+    function setStatus(text, kind = '') {
+      statusEl.textContent = text;
+      statusEl.className = `status ${kind}`.trim();
+    }
+
+    function renderResults(payload) {
+      const results = payload.results || [];
+      if (!results.length) {
+        resultsEmpty.style.display = 'block';
+        resultsGrid.innerHTML = '';
+        return;
+      }
+
+      resultsEmpty.style.display = 'none';
+      resultsGrid.innerHTML = results.map(r => {
+        const preview = escapeHtml(r.preview || '');
+        const meta = r.source || {};
+        const imageBlock = r.kind === 'image' && r.asset_url
+          ? `<img src="${r.asset_url}" alt="${escapeHtml(r.record_id)}" class="mm-thumb" />`
+          : `<pre class="mm-text-preview">${preview}</pre>`;
+
+        return `
+          <article class="card compact">
+            <h3>#${r.rank} · ${escapeHtml(r.record_id)}</h3>
+            <p class="muted">Type: ${escapeHtml(r.kind)} · Score: ${Number(r.score).toFixed(4)}</p>
+            ${imageBlock}
+            <p class="muted">Preview: ${preview}</p>
+            <p class="muted">Source: ${escapeHtml(meta.filename || 'n/a')}</p>
+            <p class="muted">Path: ${escapeHtml(meta.path || '')}</p>
+          </article>
+        `;
+      }).join('');
+    }
+
+    form.addEventListener('submit', async (event) => {
+      event.preventDefault();
+      const formData = new FormData(form);
+      setStatus('Running retrieval...');
+
+      try {
+        const res = await fetch('/api/multimodal/retrieve', {
+          method: 'POST',
+          body: formData,
+          credentials: 'same-origin'
+        });
+        const data = await res.json();
+        if (!res.ok || !data.ok) {
+          const detail = data.error || 'Retrieval failed';
+          setStatus(detail, 'err');
+          return;
+        }
+
+        setStatus(`Done. Query mode: ${data.mode}. Returned ${data.results.length} result(s).`, 'ok');
+        renderResults(data);
+      } catch (err) {
+        setStatus(`Request failed: ${err?.message || String(err)}`, 'err');
+      }
+    });
+  </script>
+</body>
+</html>
