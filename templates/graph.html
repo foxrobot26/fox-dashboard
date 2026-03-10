@@ -98,7 +98,7 @@
 
     const network = new vis.Network(document.getElementById('graphCanvas'), visData, {
       autoResize: true,
-      interaction: { hover: true, selectConnectedEdges: false },
+      interaction: { hover: true, hoverConnectedEdges: false, selectConnectedEdges: false },
       nodes: {
         shape: 'dot',
         size: 14,
@@ -118,12 +118,7 @@
         color: { color: '#6f6f6f', highlight: '#6f6f6f', hover: '#ff3b30' },
         arrows: { to: { enabled: false } },
         smooth: true,
-        font: { color: '#cfcfcf', size: 10, strokeWidth: 0 },
-        chosen: {
-          edge: (values) => {
-            values.color = '#ff3b30';
-          }
-        }
+        font: { color: '#cfcfcf', size: 10, strokeWidth: 0 }
       },
       physics: { stabilization: true, barnesHut: { gravitationalConstant: -4500 } }
     });
@@ -309,13 +304,17 @@
 
     network.on('selectNode', (params) => {
       if (!params.nodes || !params.nodes.length) return;
-      // Force node-only selection coloring, keep connected edges unhighlighted.
-      network.selectNodes(params.nodes, false);
+      // Force node-only selection coloring.
+      network.unselectAll();
+      network.selectNodes([params.nodes[0]], false);
       renderNodeDetail(params.nodes[0]);
     });
 
     network.on('selectEdge', (params) => {
       if (!params.edges || !params.edges.length) return;
+      // Force edge-only selection coloring.
+      network.unselectAll();
+      network.selectEdges([params.edges[0]]);
       renderEdgeDetail(params.edges[0]);
     });
 
