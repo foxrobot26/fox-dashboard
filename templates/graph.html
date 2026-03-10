@@ -98,7 +98,7 @@
 
     const network = new vis.Network(document.getElementById('graphCanvas'), visData, {
       autoResize: true,
-      interaction: { hover: true },
+      interaction: { hover: true, selectConnectedEdges: false },
       nodes: {
         shape: 'dot',
         size: 14,
