@@ -296,9 +296,20 @@
     toggleEntityOnly.addEventListener('change', applyFilters);
     minDegree.addEventListener('input', applyFilters);
 
-    network.on('click', (params) => {
-      if (params.nodes && params.nodes.length) return renderNodeDetail(params.nodes[0]);
-      if (params.edges && params.edges.length) return renderEdgeDetail(params.edges[0]);
+    network.on('selectNode', (params) => {
+      if (!params.nodes || !params.nodes.length) return;
+      // Force node-only selection coloring, keep connected edges unhighlighted.
+      network.selectNodes(params.nodes, false);
+      renderNodeDetail(params.nodes[0]);
+    });
+
+    network.on('selectEdge', (params) => {
+      if (!params.edges || !params.edges.length) return;
+      renderEdgeDetail(params.edges[0]);
+    });
+
+    network.on('deselectNode', () => {
+      detailBody.innerHTML = '<p class="muted-xs">Click a node or edge in the graph.</p>';
     });
 
     loadTop();
