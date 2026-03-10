@@ -169,16 +169,25 @@
 
     let remindersLoaded = false;
 
+    function escapeHtml(value) {
+      return String(value || '')
+        .replaceAll('&', '&amp;')
+        .replaceAll('<', '&lt;')
+        .replaceAll('>', '&gt;')
+        .replaceAll('"', '&quot;')
+        .replaceAll("'", '&#39;');
+    }
+
     function renderReminderCards(items) {
       if (!items.length) {
         return '<p class="muted">No reminders yet.</p>';
       }
       return `<div class="grid">${items.map(item => `
         <article class="card compact">
-          <h2>${item.title || item.text || 'Untitled reminder'}</h2>
-          <p class="muted">When: ${item.when || 'n/a'}</p>
-          <p class="muted">Status: ${item.status || 'unknown'}</p>
-          <p class="muted">Source: ${item.source || 'unknown'}</p>
+          <h2>${escapeHtml(item.title || item.text || 'Untitled reminder')}</h2>
+          <p class="muted">When: ${escapeHtml(item.when || 'n/a')}</p>
+          <p class="muted">Status: ${escapeHtml(item.status || 'unknown')}</p>
+          <p class="muted">Source: ${escapeHtml(item.source || 'unknown')}</p>
         </article>
       `).join('')}</div>`;
     }
@@ -201,7 +210,7 @@
         }
 
         const counts = data.counts || {};
-        statusEl.textContent = `Open ${counts.pending || 0} · Completed ${counts.completed || 0} · Unknown ${counts.unknown || 0}`;
+        statusEl.textContent = `Open ${counts.pending || 0} · Completed ${counts.completed || 0} · Unknown ${counts.unknown || 0} · Source ${data.source || 'n/a'}`;
         bodyEl.innerHTML = renderReminderCards(data.items || []);
         remindersLoaded = true;
       } catch (err) {

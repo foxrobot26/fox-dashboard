@@ -411,6 +411,7 @@ def create_app() -> Flask:
                     "status": status,
                     "source": source,
                     "priority": str(row.get("priority") or ""),
+                    "status_raw": status_raw,
                     "updated_at": str(row.get("updatedAt") or ""),
                     "created_at": str(row.get("createdAt") or ""),
                 }
@@ -428,6 +429,7 @@ def create_app() -> Flask:
             "ok": True,
             "timezone": timezone,
             "source": source_name,
+            "source_file": str(REMINDER_TASKS_FILE),
             "items": items,
             "counts": counts,
         }
