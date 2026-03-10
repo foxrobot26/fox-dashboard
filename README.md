@@ -17,12 +17,13 @@ Simple Flask dashboard to review daily video recommendations and send approve/re
   - optional image upload query
   - top-k selector
   - result cards with score, type, preview, and source metadata
-  - clear status badges for API key mode and dataset readiness
+  - persistent LanceDB-backed index (no per-request in-memory rebuild)
+  - status badges for API key mode, backend mode, table rows, and last sync
 
 ## Requirements
 - Python 3.10+
 - `DASHBOARD_PASSWORD` environment variable must be set, app refuses startup otherwise
-- Python deps in `requirements.txt` (now includes `numpy` and optional live-mode Gemini dependency `google-genai`)
+- Python deps in `requirements.txt` (includes `numpy`, optional live-mode Gemini dependency `google-genai`, and `lancedb` for persistent vector storage)
 
 ## Setup
 ```bash
@@ -65,6 +66,29 @@ Default base dir:
 - `/Users/fox/.openclaw/workspace/gemini-multimodal-rag-lab`
 
 If no data files are present, the page stays in a friendly "index not ready" state and retrieval returns a clear setup hint.
+
+## Multimodal index operations (LanceDB)
+One-time build or sync:
+```bash
+cd /Users/fox/projects/fox-dashboard
+source .venv/bin/activate
+python3 multimodal_rag.py sync --base-dir "$MULTIMODAL_RAG_BASE_DIR"
+```
+
+Force full rebuild:
+```bash
+python3 multimodal_rag.py sync --base-dir "$MULTIMODAL_RAG_BASE_DIR" --force
+```
+
+Inspect backend status and table info:
+```bash
+python3 multimodal_rag.py status --base-dir "$MULTIMODAL_RAG_BASE_DIR"
+```
+
+On-disk LanceDB location and metadata:
+- `${MULTIMODAL_RAG_BASE_DIR}/output/lancedb/`
+- table name: `multimodal_embeddings`
+- sync metadata: `index_meta.json`
 
 ## Tailscale access note
 Because the server binds to `0.0.0.0`, it can be reached over your Tailscale IP when running on a Tailscale-connected host. Example:

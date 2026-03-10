@@ -10,7 +10,7 @@ from urllib import error as urlerror, parse as urlparse, request as urlrequest
 
 from flask import Flask, Response, jsonify, redirect, render_template, request, send_file, session, url_for
 
-from multimodal_rag import MIME_MAP, MultimodalRAGService, retrieve_by_vector, retrieve_text
+from multimodal_rag import MIME_MAP, MultimodalRAGService
 
 WORKSPACE = Path("/Users/fox/.openclaw/workspace")
 FILE_APPROVAL_FLOW = WORKSPACE / "scripts" / "recs" / "file_approval_flow.py"
@@ -511,16 +511,14 @@ def create_app() -> Flask:
                 return jsonify({"ok": False, "error": "Image query is only available in live mode. Add GEMINI_API_KEY to enable it."}), 400
 
         try:
-            embedder, records, index = service.load_runtime()
             mode = "text"
             if uploaded is not None and uploaded.filename:
                 suffix = Path(uploaded.filename).suffix.lower()
                 mime_type = MIME_MAP.get(suffix, "image/png")
-                query_vec = embedder.embed_query_image(uploaded.read(), mime_type=mime_type)
-                hits = retrieve_by_vector(query_vec, records, index, k=top_k)
+                hits = service.retrieve_image(uploaded.read(), mime_type=mime_type, k=top_k)
                 mode = "image"
             else:
-                hits = retrieve_text(query_text, records, index, embedder, k=top_k)
+                hits = service.retrieve_text(query_text, k=top_k)
 
             results: list[dict[str, Any]] = []
             for rank, (record, score) in enumerate(hits, start=1):
@@ -537,6 +535,7 @@ def create_app() -> Flask:
                             "path": record.path,
                             "filename": rec_path.name,
                             "exists": rec_path.exists(),
+                            "backend": service.status().get("backend_mode", "fallback"),
                         },
                         "asset_url": url_for("api_multimodal_asset", record_id=record.record_id) if record.kind == "image" else "",
                     }
@@ -546,6 +545,7 @@ def create_app() -> Flask:
                 "ok": True,
                 "mode": mode,
                 "offline_mode": service.offline_mode,
+                "backend_mode": service.status().get("backend_mode", "fallback"),
                 "top_k": top_k,
                 "results": results,
             })
@@ -553,7 +553,7 @@ def create_app() -> Flask:
             return jsonify({
                 "ok": False,
                 "error": f"Retrieval failed: {exc}",
-                "hint": "Confirm data files exist under data/text and data/images, then retry.",
+                "hint": "Confirm data files exist under data/text and data/images, and run: python3 multimodal_rag.py sync",
             }), 500
 
     @app.route("/api/multimodal/asset/<path:record_id>", methods=["GET"])
@@ -563,11 +563,12 @@ def create_app() -> Flask:
 
         service: MultimodalRAGService = app.config["MULTIMODAL_RAG_SERVICE"]
         try:
-            _embedder, records, _index = service.load_runtime()
+            match = service.get_record(record_id)
         except Exception as exc:
             return jsonify({"ok": False, "error": f"Asset unavailable: {exc}"}), 404
 
-        match = next((r for r in records if r.record_id == record_id and r.kind == "image"), None)
+        if match and match.kind != "image":
+            match = None
         if not match:
             return jsonify({"ok": False, "error": "Image record not found"}), 404
 

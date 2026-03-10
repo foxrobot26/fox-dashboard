@@ -33,10 +33,15 @@
           Data index: {{ 'Ready' if status.index_ready else 'Not ready yet' }}
         </p>
         <p class="muted">Text files: <strong>{{ status.text_count }}</strong> · Image files: <strong>{{ status.image_count }}</strong></p>
+        <p id="backend-status" class="status {{ 'ok' if status.backend_available else 'err' }}">
+          Backend: {{ status.backend_mode }}{% if status.backend_error %} ({{ status.backend_error }}){% endif %}
+        </p>
       </div>
       <div class="card subtle">
-        <h3>Offline mode note</h3>
-        <p class="muted">If the Gemini API key is missing, text search still works. Image upload queries are disabled until the key is added.</p>
+        <h3>Index backend</h3>
+        <p class="muted">LanceDB path: <code>{{ status.lancedb_path }}</code></p>
+        <p class="muted">Table: <code>{{ status.lancedb_table }}</code> · Rows: <strong>{{ status.lancedb_count }}</strong> · Dim: <strong>{{ status.vector_dim }}</strong></p>
+        <p class="muted">Last sync (UTC): <strong>{{ status.last_index_sync or 'n/a' }}</strong></p>
         <p class="muted">Data folder: <code>{{ status.base_dir }}/data</code></p>
       </div>
     </section>
@@ -113,7 +118,7 @@
             <p class="muted">Type: ${escapeHtml(r.kind)} · Score: ${Number(r.score).toFixed(4)}</p>
             ${imageBlock}
             <p class="muted">Preview: ${preview}</p>
-            <p class="muted">Source: ${escapeHtml(meta.filename || 'n/a')}</p>
+            <p class="muted">Source: ${escapeHtml(meta.filename || 'n/a')} · Backend: ${escapeHtml(meta.backend || 'unknown')}</p>
             <p class="muted">Path: ${escapeHtml(meta.path || '')}</p>
           </article>
         `;
