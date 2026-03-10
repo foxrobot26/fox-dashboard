@@ -9,6 +9,18 @@ from typing import Any, Optional
 import numpy as np
 
 
+def resolve_gemini_api_key() -> str:
+    key = (os.getenv("GEMINI_API_KEY") or "").strip()
+    if key:
+        return key
+    key_file = (os.getenv("GEMINI_API_KEY_FILE") or "").strip()
+    if key_file:
+        p = Path(key_file).expanduser()
+        if p.exists():
+            return p.read_text(errors="ignore").strip()
+    return ""
+
+
 MIME_MAP = {
     ".png": "image/png",
     ".jpg": "image/jpeg",
@@ -32,7 +44,7 @@ class Embedder:
         self.embedding_model = os.getenv("GEMINI_EMBEDDING_MODEL", "gemini-embedding-2-preview")
         self.client = None
 
-        api_key = os.getenv("GEMINI_API_KEY")
+        api_key = resolve_gemini_api_key()
         if not self.offline and api_key:
             from google import genai
 
@@ -305,7 +317,7 @@ class MultimodalRAGService:
 
     @property
     def api_key_present(self) -> bool:
-        return bool(os.getenv("GEMINI_API_KEY"))
+        return bool(resolve_gemini_api_key())
 
     @property
     def offline_mode(self) -> bool:
